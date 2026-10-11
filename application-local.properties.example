@@ -1,0 +1,8 @@
+# Plantilla de secretos para desarrollo local. Cópiala como application-local.properties
+# (misma carpeta; ese archivo está en .gitignore) y llena los valores.
+spring.datasource.password=
+# Mínimo 32 caracteres aleatorios
+app.jwt.secret=
+# Opcional: sin esto la app funciona, solo no envía correos
+spring.mail.username=
+spring.mail.password=

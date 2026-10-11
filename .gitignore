@@ -1,0 +1,31 @@
+# Build output — nunca debe versionarse (contiene copias compiladas de application.properties)
+target/
+*.class
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+nbproject/
+nbbuild/
+nbdist/
+.nb-gradle/
+
+# Archivos subidos por usuarios (logos de tienda) — datos runtime, no código
+uploads/
+
+# Certificado/llave de firma de QZ Tray (impresión térmica) — se genera una vez por
+# entorno, nunca debe versionarse (ver QzSigningService)
+qz-keys/
+
+# Configuración local con secretos — nunca debe versionarse
+application-local.properties
+# Respaldos de la BD con datos reales (hashes de contraseñas, clientes, ventas)
+restopos_dump.sql
+*.dump
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
