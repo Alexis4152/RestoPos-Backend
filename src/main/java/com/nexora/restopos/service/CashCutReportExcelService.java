@@ -63,7 +63,7 @@ public class CashCutReportExcelService {
             wb.write(out);
             return out.toByteArray();
         } catch (IOException e) {
-            throw new RuntimeException("No se pudo generar el reporte de cierre en Excel", e);
+            throw new com.nexora.restopos.exception.OperacionFallidaException("No se pudo generar el reporte de cierre en Excel", e);
         }
     }
 

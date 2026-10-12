@@ -1,6 +1,7 @@
 package com.nexora.restopos.exception;
 
 import com.nexora.restopos.dto.ApiResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -12,11 +13,16 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.ErrorResponse;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
+@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -116,8 +122,43 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error(msg));
     }
 
+    /** Falla interna "esperada" con un mensaje pensado para el usuario (seguro de mostrar). */
+    @ExceptionHandler(OperacionFallidaException.class)
+    public ResponseEntity<ApiResponse<Void>> handleOperacionFallida(OperacionFallidaException ex) {
+        log.error("{}", ex.getMessage(), ex);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ApiResponse.error(ex.getMessage()));
+    }
+
+    /** Cuerpo de la petición ilegible (JSON mal formado, tipo de dato equivocado). */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNotReadable(HttpMessageNotReadableException ex) {
+        return ResponseEntity.badRequest().body(ApiResponse.error("La información enviada no tiene un formato válido"));
+    }
+
+    /** Parámetro de la URL con un tipo inválido (ej. una fecha o un id que no lo son). */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiResponse<Void>> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        return ResponseEntity.badRequest().body(ApiResponse.error("El valor de \"" + ex.getName() + "\" no es válido"));
+    }
+
+    /**
+     * Cualquier otro error no previsto. Su mensaje crudo NUNCA va al cliente (podría traer SQL,
+     * nombres de clases, rutas del servidor...): se registra completo en el log y se responde un
+     * mensaje genérico. Las excepciones propias de Spring que ya traen su código HTTP (404, 405,
+     * etc.) conservan ese código.
+     */
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<ApiResponse<Void>> handleRuntime(RuntimeException ex) {
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ApiResponse.error(ex.getMessage()));
+        if (ex instanceof AsyncRequestTimeoutException) {
+            // Conexión de tiempo real (SSE) que venció: la respuesta ya está abierta como
+            // text/event-stream, no hay nada que escribir (el navegador reconecta solo).
+            return null;
+        }
+        if (ex instanceof ErrorResponse er && er.getStatusCode().is4xxClientError()) {
+            return ResponseEntity.status(er.getStatusCode()).body(ApiResponse.error("La petición no es válida"));
+        }
+        log.error("Error no controlado: {}", ex.getMessage(), ex);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiResponse.error("Ocurrió un error inesperado. Intenta de nuevo y, si se repite, avisa al administrador."));
     }
 }

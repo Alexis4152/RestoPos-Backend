@@ -83,7 +83,7 @@ public class ProductBulkImportService {
             for (int i = 0; i < HEADERS.length; i++) sheet.autoSizeColumn(i);
             return toBytes(wb);
         } catch (IOException e) {
-            throw new RuntimeException("No se pudo generar la plantilla de carga masiva", e);
+            throw new com.nexora.restopos.exception.OperacionFallidaException("No se pudo generar la plantilla de carga masiva", e);
         }
     }
 
@@ -266,7 +266,7 @@ public class ProductBulkImportService {
             for (int i = 0; i <= HEADERS.length; i++) sheet.autoSizeColumn(i);
             return toBytes(wb);
         } catch (IOException e) {
-            throw new RuntimeException("No se pudo generar el reporte de errores", e);
+            throw new com.nexora.restopos.exception.OperacionFallidaException("No se pudo generar el reporte de errores", e);
         }
     }
 
