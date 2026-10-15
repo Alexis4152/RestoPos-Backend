@@ -136,8 +136,11 @@ public class TiendaInfoService {
         }
         if (enabled) {
             if (slug.isEmpty()) throw new IllegalArgumentException("Define el link de tu página para poder activarla");
-            if (!recoger && !domicilio) throw new IllegalArgumentException("Activa al menos una forma de entrega (recoger o domicilio)");
-            if (!efectivo && !tarjeta && !transferencia) throw new IllegalArgumentException("Activa al menos una forma de pago");
+            boolean conReservas = Boolean.TRUE.equals(req.getWebReservasEnabled());
+            if (!recoger && !domicilio && !conReservas) {
+                throw new IllegalArgumentException("Activa al menos una forma de entrega (recoger o domicilio) o las reservaciones");
+            }
+            if ((recoger || domicilio) && !efectivo && !tarjeta && !transferencia) throw new IllegalArgumentException("Activa al menos una forma de pago");
         }
         if (transferencia && (isBlank(req.getTransferenciaBanco()) || isBlank(req.getTransferenciaTitular()) || isBlank(req.getTransferenciaClabe()))) {
             throw new IllegalArgumentException("Para aceptar transferencia captura banco, titular y CLABE / cuenta");
@@ -156,6 +159,18 @@ public class TiendaInfoService {
         info.setTransferenciaTitular(trimOrNull(req.getTransferenciaTitular()));
         info.setTransferenciaClabe(trimOrNull(req.getTransferenciaClabe()));
         info.setWebMensaje(trimOrNull(req.getWebMensaje()));
+
+        boolean reservas = Boolean.TRUE.equals(req.getWebReservasEnabled());
+        if (reservas && req.getReservaHoraInicio() != null && req.getReservaHoraFin() != null
+                && !req.getReservaHoraFin().isAfter(req.getReservaHoraInicio())) {
+            throw new IllegalArgumentException("En reservaciones, la última hora debe ser después de la primera");
+        }
+        info.setWebReservasEnabled(reservas);
+        if (req.getReservaMaxPersonas() != null) info.setReservaMaxPersonas(req.getReservaMaxPersonas());
+        if (req.getReservaAnticipacionHoras() != null) info.setReservaAnticipacionHoras(req.getReservaAnticipacionHoras());
+        if (req.getReservaDiasMax() != null) info.setReservaDiasMax(req.getReservaDiasMax());
+        info.setReservaHoraInicio(req.getReservaHoraInicio());
+        info.setReservaHoraFin(req.getReservaHoraFin());
         return tiendaInfoRepository.save(info);
     }
 

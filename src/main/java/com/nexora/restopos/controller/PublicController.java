@@ -5,6 +5,7 @@ import com.nexora.restopos.dto.ClienteRequests;
 import com.nexora.restopos.dto.PublicPedidoRequest;
 import com.nexora.restopos.dto.PublicPedidoStatus;
 import com.nexora.restopos.dto.PublicSiteDtos;
+import com.nexora.restopos.dto.ReservacionDtos;
 import com.nexora.restopos.model.Cliente;
 import com.nexora.restopos.model.Orden;
 import com.nexora.restopos.model.TiendaInfo;
@@ -32,6 +33,8 @@ public class PublicController {
     private final OrdenService ordenService;
     private final ClienteService clienteService;
     private final com.nexora.restopos.service.LiveEventsService liveEventsService;
+    private final com.nexora.restopos.service.OpinionService opinionService;
+    private final com.nexora.restopos.service.ReservacionService reservacionService;
 
     /** Header con el código de sesión del cliente registrado (distinto del JWT del personal). */
     private static final String CLIENTE_HEADER = "X-Cliente-Token";
@@ -90,6 +93,63 @@ public class PublicController {
         Long ordenId = ordenService.estadoPedidoWeb(publicSiteService.resolve(slug), token).id();
         LiveEventsController.sinBuffer(response);
         return liveEventsService.suscribirOrden(ordenId);
+    }
+
+    // ── Reservaciones de mesa ──────────────────────────────────────────────────────────
+
+    /** Reglas del formulario: horario, anticipación, tope de personas y zonas para elegir. */
+    @GetMapping("/reservaciones/opciones")
+    public ResponseEntity<ApiResponse<ReservacionDtos.Opciones>> opcionesReservacion(@PathVariable String slug) {
+        return ResponseEntity.ok(ApiResponse.ok(reservacionService.opciones(publicSiteService.resolve(slug))));
+    }
+
+    /** Pide una reservación (queda pendiente de que el restaurante la confirme). */
+    @PostMapping("/reservaciones")
+    public ResponseEntity<ApiResponse<ReservacionDtos.Creada>> reservar(@PathVariable String slug,
+                                                                         @Valid @RequestBody ReservacionDtos.Crear req,
+                                                                         @RequestHeader(value = CLIENTE_HEADER, required = false) String clienteToken) {
+        TiendaInfo info = publicSiteService.resolve(slug);
+        Cliente cliente = clienteService.clienteOpcional(info, clienteToken);
+        if (cliente != null && !Boolean.TRUE.equals(cliente.getEmailVerificado())) {
+            throw new IllegalStateException("Confirma tu correo para reservar con tu cuenta (revisa tu bandeja de entrada)");
+        }
+        req.setMesaId(null); // la mesa la asigna el restaurante
+        var r = reservacionService.crearWeb(info, req, cliente);
+        return ResponseEntity.ok(ApiResponse.ok(new ReservacionDtos.Creada(r.getId(), r.getToken()),
+                "¡Recibimos tu reservación! Te avisaremos cuando quede confirmada"));
+    }
+
+    /** Estado de una reservación por su código (el que se entregó al crearla). */
+    @GetMapping("/reservaciones/{token}")
+    public ResponseEntity<ApiResponse<ReservacionDtos.Publica>> reservacion(@PathVariable String slug, @PathVariable String token) {
+        return ResponseEntity.ok(ApiResponse.ok(reservacionService.porToken(publicSiteService.resolve(slug), token)));
+    }
+
+    @PostMapping("/reservaciones/{token}/cancelar")
+    public ResponseEntity<ApiResponse<ReservacionDtos.Publica>> cancelarReservacion(@PathVariable String slug, @PathVariable String token) {
+        return ResponseEntity.ok(ApiResponse.ok(reservacionService.cancelarPorCliente(publicSiteService.resolve(slug), token, null),
+                "Reservación cancelada"));
+    }
+
+    /** Reservaciones del cliente registrado. */
+    @GetMapping("/clientes/me/reservaciones")
+    public ResponseEntity<ApiResponse<List<ReservacionDtos.Publica>>> misReservaciones(@PathVariable String slug,
+                                                                                       @RequestHeader(value = CLIENTE_HEADER, required = false) String token) {
+        Cliente c = clienteService.autenticar(publicSiteService.resolve(slug), token);
+        return ResponseEntity.ok(ApiResponse.ok(reservacionService.delCliente(c)));
+    }
+
+    // ── Opinión de una visita al restaurante (QR del ticket, sin cuenta) ─────────────────
+
+    @GetMapping("/opinion/{token}")
+    public ResponseEntity<ApiResponse<com.nexora.restopos.dto.OpinionDtos.CuentaParaOpinar>> opinion(@PathVariable String slug, @PathVariable String token) {
+        return ResponseEntity.ok(ApiResponse.ok(opinionService.porToken(publicSiteService.resolve(slug), token)));
+    }
+
+    @PostMapping("/opinion/{token}")
+    public ResponseEntity<ApiResponse<com.nexora.restopos.dto.OpinionDtos.CuentaParaOpinar>> opinar(@PathVariable String slug, @PathVariable String token,
+                                                                                                    @Valid @RequestBody com.nexora.restopos.dto.OpinionDtos.Request req) {
+        return ResponseEntity.ok(ApiResponse.ok(opinionService.opinarPorToken(publicSiteService.resolve(slug), token, req), "¡Gracias por tu opinión!"));
     }
 
     // ── Cuentas de cliente ─────────────────────────────────────────────────────────────
@@ -187,6 +247,24 @@ public class PublicController {
                                                                     @Valid @RequestBody ClienteRequests.Reporte req) {
         Cliente c = clienteService.autenticar(publicSiteService.resolve(slug), token);
         return ResponseEntity.ok(ApiResponse.ok(clienteService.reportar(c, id, req), "¡Gracias! Recibimos tu reporte"));
+    }
+
+    /** Cuentas pagadas de una visita al restaurante propia, para opinar de cada una. */
+    @GetMapping("/clientes/me/pedidos/{id}/cuentas")
+    public ResponseEntity<ApiResponse<List<com.nexora.restopos.dto.OpinionDtos.CuentaParaOpinar>>> cuentasParaOpinar(
+            @PathVariable String slug, @PathVariable Long id,
+            @RequestHeader(value = CLIENTE_HEADER, required = false) String token) {
+        Cliente c = clienteService.autenticar(publicSiteService.resolve(slug), token);
+        return ResponseEntity.ok(ApiResponse.ok(opinionService.cuentasDelCliente(c, id)));
+    }
+
+    @PostMapping("/clientes/me/cuentas/{cuentaId}/opinion")
+    public ResponseEntity<ApiResponse<com.nexora.restopos.dto.OpinionDtos.CuentaParaOpinar>> opinarCliente(
+            @PathVariable String slug, @PathVariable Long cuentaId,
+            @RequestHeader(value = CLIENTE_HEADER, required = false) String token,
+            @Valid @RequestBody com.nexora.restopos.dto.OpinionDtos.Request req) {
+        Cliente c = clienteService.autenticar(publicSiteService.resolve(slug), token);
+        return ResponseEntity.ok(ApiResponse.ok(opinionService.opinarComoCliente(c, cuentaId, req), "¡Gracias por tu opinión!"));
     }
 
     /** Estrellas (1–5) y comentario de un pedido propio ya entregado. */

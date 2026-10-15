@@ -124,6 +124,31 @@ public class TiendaInfo {
     @Column(columnDefinition = "TEXT")
     private String webMensaje;
 
+    // ── Reservaciones de mesa desde la página web (ver ReservacionService) ──
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    @Builder.Default
+    private Boolean webReservasEnabled = false;
+
+    // Tamaño máximo de grupo que se puede reservar en línea (más grande: que llamen).
+    @Column(nullable = false, columnDefinition = "integer default 12")
+    @Builder.Default
+    private Integer reservaMaxPersonas = 12;
+
+    // Con cuántas horas de anticipación mínima se aceptan (para que dé tiempo de confirmarlas).
+    @Column(nullable = false, columnDefinition = "integer default 2")
+    @Builder.Default
+    private Integer reservaAnticipacionHoras = 2;
+
+    // Hasta cuántos días adelante se puede reservar.
+    @Column(nullable = false, columnDefinition = "integer default 30")
+    @Builder.Default
+    private Integer reservaDiasMax = 30;
+
+    // Primer y último horario reservable del día (null = sin restricción de horario).
+    private java.time.LocalTime reservaHoraInicio;
+
+    private java.time.LocalTime reservaHoraFin;
+
     // LAZY: evita cargar en cadena Role/Tienda/etc. de ese usuario (mismo motivo que en las demás entidades)
     @JsonIgnoreProperties({"role", "tienda", "createdBy", "updatedBy", "deletedBy"})
     @ManyToOne(fetch = FetchType.LAZY)

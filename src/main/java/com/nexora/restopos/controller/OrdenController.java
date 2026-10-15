@@ -30,6 +30,7 @@ import java.util.List;
 public class OrdenController {
 
     private final OrdenService ordenService;
+    private final com.nexora.restopos.service.OpinionService opinionService;
 
     /**
      * Órdenes para llevar (sin mesa) activas — ni pagadas ni canceladas —, más antiguas
@@ -142,6 +143,25 @@ public class OrdenController {
                                                            @AuthenticationPrincipal User actor) {
         ordenService.cancelarItem(id, itemId, req != null ? req.getMotivo() : null, actor);
         return ResponseEntity.ok(ApiResponse.ok(null, "Producto cancelado"));
+    }
+
+    /** Liga la orden a un cliente registrado (por correo o teléfono) para que la vea y la califique en "Mis pedidos". */
+    @PostMapping("/{id}/cliente")
+    public ResponseEntity<ApiResponse<Orden>> vincularCliente(@PathVariable Long id, @Valid @RequestBody OpinionDtos.VincularCliente req,
+                                                              @AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(ordenService.vincularCliente(id, req.getBusqueda(), actor), "Cliente ligado a la orden"));
+    }
+
+    @DeleteMapping("/{id}/cliente")
+    public ResponseEntity<ApiResponse<Orden>> desvincularCliente(@PathVariable Long id, @AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(ordenService.desvincularCliente(id, actor), "Cliente quitado de la orden"));
+    }
+
+    /** Opiniones de las cuentas de la orden (cuentaId → opinión). */
+    @GetMapping("/{id}/opiniones")
+    public ResponseEntity<ApiResponse<java.util.Map<Long, OpinionDtos.OpinionHecha>>> opiniones(@PathVariable Long id, @AuthenticationPrincipal User actor) {
+        ordenService.findById(id, actor); // valida acceso a la orden
+        return ResponseEntity.ok(ApiResponse.ok(opinionService.deOrden(id)));
     }
 
     @PostMapping("/{id}/cancel")

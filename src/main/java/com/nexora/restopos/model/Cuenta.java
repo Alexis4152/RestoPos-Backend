@@ -87,6 +87,12 @@ public class Cuenta {
     @Column(length = 150)
     private String ticketEmailDestino;
 
+    // Código aleatorio del enlace "califica tu visita" que va en el QR del ticket (solo cuentas
+    // de órdenes de mesa; se genera la primera vez que se imprime/pide). Ver OpinionService.
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Column(length = 64, unique = true)
+    private String opinionToken;
+
     @JsonIgnoreProperties({"role", "tienda", "createdBy", "updatedBy", "deletedBy"})
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by_user_id")

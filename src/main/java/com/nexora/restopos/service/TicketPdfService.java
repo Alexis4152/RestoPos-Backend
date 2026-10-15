@@ -57,6 +57,7 @@ public class TicketPdfService {
     private static final Font FONT_TOTAL = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 13);
 
     private final TiendaInfoRepository tiendaInfoRepository;
+    private final OpinionService opinionService;
 
     @Value("${app.uploads.dir}")
     private String uploadsDir;
@@ -160,6 +161,7 @@ public class TicketPdfService {
             // ── Pie ────────────────────────────────────────────────────────
             document.add(paragraph(SpanishNumberToWords.pesos(cuenta.getTotal()), FONT_BODY, Element.ALIGN_CENTER, 0, 10));
             addSeparator(document, 10);
+            addQrOpinion(document, cuenta);
             document.add(paragraph("NEXORA SYSTEMS", FONT_BODY_BOLD, Element.ALIGN_CENTER, 0, 2));
             document.add(paragraph("WWW.NEXORASYSTEMS.COM", FONT_SUBTLE, Element.ALIGN_CENTER, 0, 6));
             document.add(paragraph("¡¡¡GRACIAS POR SU VISITA, VUELVA PRONTO!!!", FONT_SUBTLE, Element.ALIGN_CENTER, 0, 0));
@@ -192,6 +194,22 @@ public class TicketPdfService {
     private void addIfPresent(Document document, String text) throws DocumentException {
         if (text != null && !text.isBlank()) {
             document.add(paragraph(text, FONT_SUBTLE, Element.ALIGN_CENTER, 0, 0));
+        }
+    }
+
+    /** QR "¿Qué tal estuvo? Califícanos" (solo cuentas de mesa con página web activa). */
+    private void addQrOpinion(Document document, Cuenta cuenta) {
+        try {
+            String url = opinionService.enlace(cuenta);
+            if (url == null) return;
+            document.add(paragraph("¿QUÉ TAL ESTUVO? ESCANEA Y CALIFÍCANOS", FONT_BODY_BOLD, Element.ALIGN_CENTER, 0, 4));
+            Image qr = Image.getInstance(OpinionService.qrPng(url, 300));
+            qr.scaleToFit(95, 95);
+            qr.setAlignment(Image.ALIGN_CENTER);
+            document.add(qr);
+            addSeparator(document, 10);
+        } catch (Exception e) {
+            log.warn("No se pudo agregar el QR de opinión al ticket: {}", e.getMessage());
         }
     }
 

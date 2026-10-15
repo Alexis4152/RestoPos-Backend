@@ -9,6 +9,10 @@ import com.nexora.restopos.model.PaymentMethod;
 import com.nexora.restopos.model.Tienda;
 import com.nexora.restopos.model.TiendaInfo;
 import com.nexora.restopos.repository.TiendaInfoRepository;
+import com.google.zxing.BarcodeFormat;
+import com.google.zxing.EncodeHintType;
+import com.google.zxing.common.BitMatrix;
+import com.google.zxing.qrcode.QRCodeWriter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -51,6 +55,7 @@ public class EscPosTicketService {
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
 
     private final TiendaInfoRepository tiendaInfoRepository;
+    private final OpinionService opinionService;
 
     /**
      * Arma el ticket completo de una cuenta y lo entrega como cadena hexadecimal, lista para
@@ -152,6 +157,15 @@ public class EscPosTicketService {
 
         text(buf, line());
         ctl(buf, 0x1B, 0x61, 0x01);
+        // QR "califica tu visita" (solo cuentas de mesa con página web activa), impreso como
+        // imagen raster para que salga en cualquier impresora (ver qrRaster).
+        String urlOpinion = null;
+        try { urlOpinion = opinionService.enlace(cuenta); } catch (Exception ignored) { /* el ticket sale igual */ }
+        if (urlOpinion != null) {
+            text(buf, "Que tal estuvo? Califica tu visita\n");
+            qrRaster(buf, urlOpinion);
+            text(buf, "\n");
+        }
         text(buf, "Gracias por su visita\n");
         ctl(buf, 0x1B, 0x61, 0x00);
         text(buf, "\n\n\n");
@@ -164,6 +178,40 @@ public class EscPosTicketService {
         }
 
         return toHex(buf.toByteArray());
+    }
+
+    /** Ancho del QR impreso, en puntos: cabe en papel de 58 mm (384 puntos) y de 80 mm. */
+    private static final int QR_PUNTOS = 240;
+
+    /**
+     * Código QR como IMAGEN en mapa de bits (GS v 0), no con el comando de QR nativo (GS ( k):
+     * ese comando no lo soportan muchas impresoras económicas (con él, el ticket de mesa no
+     * salía), mientras que la impresión de imágenes raster la acepta prácticamente cualquier
+     * impresora ESC/POS. El QR se arma con ZXing y se escala a ~{@value #QR_PUNTOS} puntos.
+     */
+    private void qrRaster(ByteArrayOutputStream buf, String data) {
+        BitMatrix m;
+        try {
+            // tamaño 0 = la matriz mínima (un punto por módulo); se escala abajo a mano
+            m = new QRCodeWriter().encode(data, BarcodeFormat.QR_CODE, 0, 0, java.util.Map.of(EncodeHintType.MARGIN, 1));
+        } catch (Exception e) {
+            return; // sin QR, el ticket sale igual
+        }
+        int modulos = m.getWidth();
+        int escala = Math.max(1, QR_PUNTOS / modulos);
+        int puntos = modulos * escala;
+        int anchoBytes = (puntos + 7) / 8;
+        ctl(buf, 0x1D, 0x76, 0x30, 0x00, anchoBytes & 0xFF, (anchoBytes >> 8) & 0xFF, puntos & 0xFF, (puntos >> 8) & 0xFF);
+        for (int y = 0; y < puntos; y++) {
+            for (int xb = 0; xb < anchoBytes; xb++) {
+                int b = 0;
+                for (int bit = 0; bit < 8; bit++) {
+                    int x = xb * 8 + bit;
+                    if (x < puntos && m.get(x / escala, y / escala)) b |= 0x80 >> bit;
+                }
+                buf.write(b);
+            }
+        }
     }
 
     private String metodoPagoEs(PaymentMethod pm) {

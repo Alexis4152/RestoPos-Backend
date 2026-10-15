@@ -10,4 +10,6 @@ public interface ClienteRepository extends JpaRepository<Cliente, Long> {
     Optional<Cliente> findByTiendaIdAndEmailIgnoreCase(Long tiendaId, String email);
 
     boolean existsByTiendaIdAndEmailIgnoreCase(Long tiendaId, String email);
+
+    java.util.List<Cliente> findAllByTiendaIdAndIsActiveTrue(Long tiendaId);
 }

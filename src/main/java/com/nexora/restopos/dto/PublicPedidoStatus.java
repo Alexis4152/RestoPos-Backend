@@ -27,7 +27,9 @@ public record PublicPedidoStatus(
         String reporteProductos,
         String reporteComentario,
         LocalDateTime reportarHasta,
-        boolean puedeReportar
+        boolean puedeReportar,
+        // Solo órdenes de mesa (tipoEntrega = "MESA"): número de mesa.
+        String mesa
 ) {
     public record Linea(Long id, String nombre, BigDecimal cantidad, BigDecimal subtotal, List<String> modificadores) {}
 }

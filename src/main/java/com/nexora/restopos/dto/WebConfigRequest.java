@@ -27,4 +27,18 @@ public class WebConfigRequest {
     private String transferenciaClabe;
     @Size(max = 1000, message = "El mensaje no puede tener más de 1000 caracteres")
     private String webMensaje;
+
+    // Reservaciones de mesa
+    private Boolean webReservasEnabled;
+    @jakarta.validation.constraints.Min(value = 1, message = "El máximo de personas debe ser al menos 1")
+    @jakarta.validation.constraints.Max(value = 100, message = "El máximo de personas no puede pasar de 100")
+    private Integer reservaMaxPersonas;
+    @jakarta.validation.constraints.Min(value = 0, message = "La anticipación no puede ser negativa")
+    @jakarta.validation.constraints.Max(value = 168, message = "La anticipación no puede pasar de 168 horas (7 días)")
+    private Integer reservaAnticipacionHoras;
+    @jakarta.validation.constraints.Min(value = 1, message = "Permite reservar al menos 1 día adelante")
+    @jakarta.validation.constraints.Max(value = 365, message = "No se puede reservar con más de 365 días")
+    private Integer reservaDiasMax;
+    private java.time.LocalTime reservaHoraInicio;
+    private java.time.LocalTime reservaHoraFin;
 }

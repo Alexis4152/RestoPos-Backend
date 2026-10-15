@@ -30,6 +30,7 @@ import java.util.List;
 public class CuentaController {
 
     private final CuentaService cuentaService;
+    private final com.nexora.restopos.service.OpinionService opinionService;
     private final TicketPdfService ticketPdfService;
     private final EscPosTicketService escPosTicketService;
     private final EmailService emailService;
@@ -45,6 +46,13 @@ public class CuentaController {
     @PreAuthorize("@sectionAccess.check('ORDERS')")
     public ResponseEntity<ApiResponse<List<Cuenta>>> listByOrden(@PathVariable Long ordenId, @AuthenticationPrincipal User actor) {
         return ResponseEntity.ok(ApiResponse.ok(cuentaService.findAllByOrden(ordenId, actor), null));
+    }
+
+    /** Enlace y QR "califica tu visita" de una cuenta de mesa, para mostrarlo en pantalla. */
+    @GetMapping("/api/accounts/{id}/opinion-qr")
+    @PreAuthorize("@sectionAccess.check('ORDERS')")
+    public ResponseEntity<ApiResponse<com.nexora.restopos.dto.OpinionDtos.EnlaceQr>> opinionQr(@PathVariable Long id, @AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(opinionService.enlaceQr(cuentaService.findById(id, actor))));
     }
 
     @GetMapping("/api/accounts/{id}")

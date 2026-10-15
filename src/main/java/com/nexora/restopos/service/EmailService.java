@@ -134,6 +134,12 @@ public class EmailService {
                 "Si tú no lo pediste, ignora este correo: tu contraseña sigue siendo la misma.");
     }
 
+    /** Aviso al cliente sobre su reservación de mesa (confirmada, rechazada, cancelada). */
+    @Async
+    public void sendReservacionEmail(String toEmail, String asunto, String texto) {
+        enviarTexto(toEmail, asunto, texto);
+    }
+
     private void enviarTexto(String toEmail, String asunto, String texto) {
         try {
             MimeMessage message = mailSender.createMimeMessage();

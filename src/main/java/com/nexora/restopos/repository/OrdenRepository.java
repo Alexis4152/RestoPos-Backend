@@ -106,6 +106,11 @@ public interface OrdenRepository extends JpaRepository<Orden, Long> {
                                               @Param("desde") LocalDateTime desde,
                                               @Param("hasta") LocalDateTime hasta);
 
+    /** Pedidos web con reseña del cliente en un rango (pantalla "Opiniones"). */
+    @Query("SELECT o FROM Orden o WHERE (:tiendaId IS NULL OR o.tienda.id = :tiendaId) " +
+           "AND o.resenaEstrellas IS NOT NULL AND o.resenaAt BETWEEN :desde AND :hasta")
+    List<Orden> findConResenaEntre(@Param("tiendaId") Long tiendaId, @Param("desde") LocalDateTime desde, @Param("hasta") LocalDateTime hasta);
+
     /** Historial de pedidos de un cliente registrado, más recientes primero. */
     List<Orden> findTop50ByClienteIdOrderByOpenedAtDesc(Long clienteId);
 

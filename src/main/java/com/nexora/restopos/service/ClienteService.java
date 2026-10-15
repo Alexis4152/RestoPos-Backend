@@ -240,6 +240,7 @@ public class ClienteService {
         if (!"ENTREGADO".equals(ordenService.estadoParaCliente(orden).estado())) {
             throw new IllegalStateException("Podrás calificar tu pedido cuando te lo entreguen");
         }
+        if (orden.getMesa() != null) throw new IllegalStateException("Las visitas al restaurante se califican por cuenta");
         if (orden.getResenaEstrellas() != null) throw new IllegalStateException("Ya calificaste este pedido");
         orden.setResenaEstrellas(req.getEstrellas());
         orden.setResenaComentario(req.getComentario() != null && !req.getComentario().isBlank() ? req.getComentario().trim() : null);

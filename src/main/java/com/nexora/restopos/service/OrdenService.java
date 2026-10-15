@@ -57,6 +57,7 @@ public class OrdenService {
     private final OrdenDetalleModificadorRepository ordenDetalleModificadorRepository;
     private final TiendaInfoRepository tiendaInfoRepository;
     private final ProductRepository productRepository;
+    private final com.nexora.restopos.repository.ClienteRepository clienteRepository;
     private final TenantScope tenantScope;
     private final AuditoriaService auditoriaService;
 
@@ -319,14 +320,17 @@ public class OrdenService {
                 .toList();
         LocalDateTime entregadoEn = "ENTREGADO".equals(estado) ? momentoEntrega(orden) : null;
         LocalDateTime reportarHasta = entregadoEn != null ? entregadoEn.plusHours(HORAS_PARA_REPORTAR) : null;
-        boolean puedeReportar = reportarHasta != null && orden.getReporteTipo() == null
+        // Las órdenes de mesa no usan el reporte de entrega ni la reseña web: se opinan por
+        // cuenta (OpinionService), desde el QR del ticket o desde "Mis pedidos".
+        boolean enMesa = orden.getMesa() != null;
+        boolean puedeReportar = !enMesa && reportarHasta != null && orden.getReporteTipo() == null
                 && LocalDateTime.now().isBefore(reportarHasta);
-        return new PublicPedidoStatus(orden.getId(), estado, orden.getTipoEntrega(), orden.getMetodoPago(),
+        return new PublicPedidoStatus(orden.getId(), estado, enMesa ? "MESA" : orden.getTipoEntrega(), orden.getMetodoPago(),
                 orden.getTotal(), orden.getOpenedAt(),
                 "RECHAZADO".equals(estado) ? orden.getMotivoCancelacion() : null, lineas,
                 orden.getResenaEstrellas(), orden.getResenaComentario(),
                 entregadoEn, orden.getReporteTipo(), orden.getReporteProductos(), orden.getReporteComentario(),
-                reportarHasta, puedeReportar);
+                enMesa ? null : reportarHasta, puedeReportar, enMesa ? orden.getMesa().getNumero() : null);
     }
 
     /** Plazo para que el cliente reporte cómo llegó su pedido, contado desde la entrega. */
@@ -385,6 +389,37 @@ public class OrdenService {
                 .filter(v -> !v.getItems().isEmpty())
                 .sorted(java.util.Comparator.comparing((KitchenOrdenView v) -> horaEntrega.apply(v.getItems().get(0))).reversed())
                 .toList();
+    }
+
+    /**
+     * El mesero liga la orden a un cliente registrado de la página web, buscándolo por su
+     * correo o su teléfono: así la visita aparece en su "Mis pedidos" y puede opinar desde ahí.
+     */
+    @Transactional
+    public Orden vincularCliente(Long ordenId, String busqueda, User actor) {
+        Orden orden = findById(ordenId, actor);
+        if ("WEB".equals(orden.getOrigen())) throw new IllegalStateException("Los pedidos web ya tienen su cliente");
+        String q = busqueda.trim();
+        String digitos = q.replaceAll("\\D", "");
+        Long tiendaId = orden.getTienda().getId();
+        Cliente cliente = (q.contains("@")
+                ? clienteRepository.findByTiendaIdAndEmailIgnoreCase(tiendaId, q).filter(c -> Boolean.TRUE.equals(c.getIsActive()))
+                : clienteRepository.findAllByTiendaIdAndIsActiveTrue(tiendaId).stream()
+                        .filter(c -> digitos.length() >= 10 && c.getTelefono().replaceAll("\\D", "").endsWith(digitos.substring(digitos.length() - 10)))
+                        .findFirst())
+                .orElseThrow(() -> new IllegalArgumentException("No hay ningún cliente registrado con ese " + (q.contains("@") ? "correo" : "teléfono")));
+        orden.setCliente(cliente);
+        Orden saved = ordenRepository.save(orden);
+        auditoriaService.log(actor, "VINCULAR_CLIENTE_ORDEN", "Orden", saved.getId(), null, cliente.getEmail(), null);
+        return saved;
+    }
+
+    @Transactional
+    public Orden desvincularCliente(Long ordenId, User actor) {
+        Orden orden = findById(ordenId, actor);
+        if ("WEB".equals(orden.getOrigen())) throw new IllegalStateException("No se puede quitar el cliente de un pedido web");
+        orden.setCliente(null);
+        return ordenRepository.save(orden);
     }
 
     public Orden findById(Long id) {

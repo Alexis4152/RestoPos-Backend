@@ -15,6 +15,9 @@ import java.util.List;
 public interface CuentaRepository extends JpaRepository<Cuenta, Long> {
     List<Cuenta> findByOrdenIdOrderByCreatedAtAsc(Long ordenId);
 
+    /** Cuenta por el código del QR "califica tu visita" (ver OpinionService). */
+    java.util.Optional<Cuenta> findByOpinionToken(String opinionToken);
+
     /**
      * Búsqueda paginada de cuentas (ventas) con filtros combinables, para el módulo de
      * Ventas. {@code tiendaId} nulo indica SUPER_ADMIN viendo todas las tiendas; el resto de

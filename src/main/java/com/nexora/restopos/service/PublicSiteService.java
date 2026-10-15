@@ -66,7 +66,8 @@ public class PublicSiteService {
                 transferencia,
                 transferencia ? i.getTransferenciaBanco() : null,
                 transferencia ? i.getTransferenciaTitular() : null,
-                transferencia ? i.getTransferenciaClabe() : null);
+                transferencia ? i.getTransferenciaClabe() : null,
+                Boolean.TRUE.equals(i.getWebReservasEnabled()));
     }
 
     /**

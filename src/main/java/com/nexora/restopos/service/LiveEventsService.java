@@ -86,6 +86,11 @@ public class LiveEventsService {
         aTienda(tiendaId, "mesa", "{}");
     }
 
+    void publicarReservacion(Long tiendaId, Long clienteId) {
+        aTienda(tiendaId, "reservacion", "{}");
+        if (clienteId != null) enviarA(porCliente.get(clienteId), "reservacion", "{}");
+    }
+
     private void aTienda(Long tiendaId, String nombre, String data) {
         if (tiendaId != null) enviarA(porTienda.get(tiendaId), nombre, data);
         enviarA(porTienda.get(TODAS), nombre, data);
@@ -122,7 +127,7 @@ public class LiveEventsService {
 
     // ── Agrupación por transacción ────────────────────────────────────────────────────
 
-    /** Cambio pendiente de avisar: una orden (con su tienda y cliente) o una mesa. */
+    /** Cambio pendiente de avisar: una orden (con su tienda y cliente), una mesa o una reservación. */
     record Cambio(String tipo, Long tiendaId, Long ordenId, Long clienteId) {}
 
     private static final Object CLAVE_TX = new Object();
@@ -159,6 +164,7 @@ public class LiveEventsService {
         for (Cambio c : cambios) {
             try {
                 if ("mesa".equals(c.tipo())) publicarMesa(c.tiendaId());
+                else if ("reservacion".equals(c.tipo())) publicarReservacion(c.tiendaId(), c.clienteId());
                 else publicarOrden(c.tiendaId(), c.ordenId(), c.clienteId());
             } catch (Exception e) {
                 log.warn("No se pudo enviar aviso en tiempo real: {}", e.getMessage());

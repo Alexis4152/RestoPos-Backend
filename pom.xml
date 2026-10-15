@@ -67,6 +67,17 @@
       <artifactId>openpdf</artifactId>
       <version>2.0.3</version>
     </dependency>
+    <!-- Códigos QR (enlace "califica tu visita" en el ticket, ver OpinionService) -->
+    <dependency>
+      <groupId>com.google.zxing</groupId>
+      <artifactId>core</artifactId>
+      <version>3.5.3</version>
+    </dependency>
+    <dependency>
+      <groupId>com.google.zxing</groupId>
+      <artifactId>javase</artifactId>
+      <version>3.5.3</version>
+    </dependency>
 
     <!-- Generación de Excel (reporte de cierre de cortes) -->
     <dependency>

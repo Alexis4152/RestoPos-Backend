@@ -30,7 +30,8 @@ public final class PublicSiteDtos {
             boolean pagoTransferencia,
             String transferenciaBanco,
             String transferenciaTitular,
-            String transferenciaClabe
+            String transferenciaClabe,
+            boolean reservaciones
     ) {}
 
     public record Opcion(Long id, String nombre, BigDecimal precioExtra) {}
