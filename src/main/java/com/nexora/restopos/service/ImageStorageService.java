@@ -39,6 +39,11 @@ public class ImageStorageService {
     @Value("${app.uploads.dir}")
     private String uploadsDir;
 
+    // Imágenes que NO deben ser públicas (comprobantes de transferencia): carpeta aparte que no
+    // está mapeada a /uploads/**, solo se leen por un endpoint con sesión del personal.
+    @Value("${app.private-uploads.dir}")
+    private String privateUploadsDir;
+
     /**
      * Valida y guarda la imagen; regresa su ruta pública ({@code /uploads/<carpeta>/<archivo>}).
      *
@@ -48,6 +53,42 @@ public class ImageStorageService {
      * @param etiqueta cómo se le llama en los mensajes de error ("El logo", "La imagen")
      */
     public String guardar(MultipartFile file, String carpeta, String prefijo, String etiqueta) {
+        return "/uploads/" + guardarEn(raiz(), file, carpeta, prefijo, etiqueta);
+    }
+
+    /**
+     * Igual que {@link #guardar}, pero en la carpeta privada (no se sirve por /uploads/**).
+     * Regresa la ruta relativa a esa carpeta ({@code <carpeta>/<archivo>}).
+     */
+    public String guardarPrivado(MultipartFile file, String carpeta, String prefijo, String etiqueta) {
+        return guardarEn(raizPrivada(), file, carpeta, prefijo, etiqueta);
+    }
+
+    /**
+     * Archivo de la carpeta privada por su ruta relativa; null si no existe o si la ruta
+     * intenta salirse de la carpeta (ej. con "../").
+     */
+    public Path leerPrivado(String rutaRelativa) {
+        if (rutaRelativa == null || rutaRelativa.isBlank()) return null;
+        Path raiz = raizPrivada();
+        Path archivo = raiz.resolve(rutaRelativa).normalize();
+        if (!archivo.startsWith(raiz) || !Files.isRegularFile(archivo)) return null;
+        return archivo;
+    }
+
+    /** Borra un archivo de la carpeta privada, si existe. Best effort: un fallo solo se registra. */
+    public void borrarPrivado(String rutaRelativa) {
+        Path archivo = leerPrivado(rutaRelativa);
+        if (archivo == null) return;
+        try {
+            Files.deleteIfExists(archivo);
+        } catch (IOException e) {
+            log.warn("No se pudo borrar el archivo privado anterior ({}): {}", rutaRelativa, e.getMessage());
+        }
+    }
+
+    /** Valida y guarda la imagen bajo {@code raiz/carpeta}; regresa {@code <carpeta>/<archivo>}. */
+    private String guardarEn(Path raiz, MultipartFile file, String carpeta, String prefijo, String etiqueta) {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("Selecciona un archivo de imagen");
         }
@@ -59,13 +100,13 @@ public class ImageStorageService {
             throw new IllegalArgumentException(etiqueta + " debe ser un archivo PNG, JPG o WEBP válido");
         }
         try {
-            Path dir = raiz().resolve(carpeta).normalize();
+            Path dir = raiz.resolve(carpeta).normalize();
             Files.createDirectories(dir);
             String filename = prefijo + "-" + UUID.randomUUID() + ext;
             try (InputStream in = file.getInputStream()) {
                 Files.copy(in, dir.resolve(filename), StandardCopyOption.REPLACE_EXISTING);
             }
-            return "/uploads/" + carpeta + "/" + filename;
+            return carpeta + "/" + filename;
         } catch (IOException e) {
             throw new OperacionFallidaException("No se pudo guardar " + etiqueta.toLowerCase(), e);
         }
@@ -92,6 +133,10 @@ public class ImageStorageService {
 
     private Path raiz() {
         return Paths.get(uploadsDir).toAbsolutePath().normalize();
+    }
+
+    private Path raizPrivada() {
+        return Paths.get(privateUploadsDir).toAbsolutePath().normalize();
     }
 
     /** ".png", ".jpg" o ".webp" según la firma de los primeros bytes; null si no es ninguna. */

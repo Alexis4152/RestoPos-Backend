@@ -14,6 +14,9 @@ public interface PagoRepository extends JpaRepository<Pago, Long> {
 
     List<Pago> findByCashCutId(Long cashCutId);
 
+    /** Pagos vigentes (no cancelados) de todas las cuentas de una orden, en el orden en que se hicieron. */
+    List<Pago> findByCuentaOrdenIdAndCanceladoFalseOrderByCreatedAtAsc(Long ordenId);
+
     @Query("SELECT COALESCE(SUM(p.monto),0) FROM Pago p WHERE p.cancelado = false AND p.createdAt BETWEEN :from AND :to " +
            "AND (:tiendaId IS NULL OR p.cuenta.orden.tienda.id = :tiendaId)")
     BigDecimal totalBetween(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to, @Param("tiendaId") Long tiendaId);

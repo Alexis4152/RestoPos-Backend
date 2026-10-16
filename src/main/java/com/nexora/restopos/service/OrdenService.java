@@ -60,6 +60,7 @@ public class OrdenService {
     private final com.nexora.restopos.repository.ClienteRepository clienteRepository;
     private final TenantScope tenantScope;
     private final AuditoriaService auditoriaService;
+    private final ImageStorageService imageStorageService;
 
     public Page<Orden> findAll(LocalDateTime from, LocalDateTime to, OrdenEstado estado, Pageable pageable, User actor) {
         LocalDateTime effFrom = from != null ? from : MIN_DATE;
@@ -316,7 +317,10 @@ public class OrdenService {
                 .sorted(java.util.Comparator.comparing(OrdenDetalle::getCreatedAt,
                         java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
                 .map(i -> new PublicPedidoStatus.Linea(i.getId(), i.getProductoNombre(), i.getCantidad(), i.getSubtotal(),
-                        i.getModificadores().stream().map(m -> m.getGrupoNombre() + ": " + m.getNombre()).toList()))
+                        i.getModificadores().stream().map(m -> m.getGrupoNombre() + ": " + m.getNombre()
+                                // El cliente ve cuánto le costó cada extra (el subtotal de la línea ya lo incluye).
+                                + (m.getPrecioExtra() != null && m.getPrecioExtra().signum() > 0
+                                        ? String.format(" (+$%,.2f)", m.getPrecioExtra()) : "")).toList()))
                 .toList();
         LocalDateTime entregadoEn = "ENTREGADO".equals(estado) ? momentoEntrega(orden) : null;
         LocalDateTime reportarHasta = entregadoEn != null ? entregadoEn.plusHours(HORAS_PARA_REPORTAR) : null;
@@ -330,7 +334,70 @@ public class OrdenService {
                 "RECHAZADO".equals(estado) ? orden.getMotivoCancelacion() : null, lineas,
                 orden.getResenaEstrellas(), orden.getResenaComentario(),
                 entregadoEn, orden.getReporteTipo(), orden.getReporteProductos(), orden.getReporteComentario(),
-                enMesa ? null : reportarHasta, puedeReportar, enMesa ? orden.getMesa().getNumero() : null);
+                enMesa ? null : reportarHasta, puedeReportar, enMesa ? orden.getMesa().getNumero() : null,
+                costoEnvio(orden), orden.getComprobantePath() != null, orden.getTransferenciaIncluyeEnvio());
+    }
+
+    /** Suma de los cargos de envío (no cancelados) del pedido; cero si no tiene. */
+    public static BigDecimal costoEnvio(Orden orden) {
+        return orden.getItems().stream()
+                .filter(i -> Boolean.TRUE.equals(i.getCargoExtra()) && i.getEstado() != OrdenDetalleEstado.CANCELADO)
+                .map(OrdenDetalle::getSubtotal)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    /**
+     * El cliente sube (o reemplaza) la foto del comprobante de su transferencia desde el
+     * seguimiento del pedido, y dice si la transferencia incluye el costo de envío. Solo para
+     * pedidos web a domicilio que eligieron pagar por transferencia, aún sin entregar ni pagar.
+     */
+    @Transactional
+    public PublicPedidoStatus subirComprobanteWeb(TiendaInfo info, String trackingToken,
+                                                  org.springframework.web.multipart.MultipartFile file, boolean incluyeEnvio) {
+        Orden orden = ordenRepository.findByTrackingToken(trackingToken == null ? "" : trackingToken.trim())
+                .filter(o -> o.getTienda() != null && o.getTienda().getId().equals(info.getTienda().getId()))
+                .filter(o -> "WEB".equals(o.getOrigen()))
+                .orElseThrow(() -> new IllegalArgumentException("Pedido no encontrado"));
+        return subirComprobante(orden, file, incluyeEnvio);
+    }
+
+    /** Lo mismo que {@link #subirComprobanteWeb}, desde "Mis pedidos" del cliente registrado (pedido propio). */
+    @Transactional
+    public PublicPedidoStatus subirComprobanteCliente(TiendaInfo info, Cliente cliente, Long ordenId,
+                                                      org.springframework.web.multipart.MultipartFile file, boolean incluyeEnvio) {
+        Orden orden = ordenRepository.findById(ordenId)
+                .filter(o -> o.getCliente() != null && o.getCliente().getId().equals(cliente.getId()))
+                .filter(o -> o.getTienda() != null && o.getTienda().getId().equals(info.getTienda().getId()))
+                .orElseThrow(() -> new IllegalArgumentException("Pedido no encontrado"));
+        return subirComprobante(orden, file, incluyeEnvio);
+    }
+
+    /**
+     * Foto del comprobante de transferencia de una orden, para el personal de la tienda (el
+     * acceso por sección/rol lo valida el controlador; aquí, que la orden sea de su tienda).
+     */
+    public java.nio.file.Path archivoComprobante(Long ordenId, User actor) {
+        Orden orden = findById(ordenId, actor);
+        java.nio.file.Path archivo = imageStorageService.leerPrivado(orden.getComprobantePath());
+        if (archivo == null) throw new IllegalArgumentException("Este pedido no tiene comprobante");
+        return archivo;
+    }
+
+    private PublicPedidoStatus subirComprobante(Orden orden, org.springframework.web.multipart.MultipartFile file, boolean incluyeEnvio) {
+        if (!"DOMICILIO".equals(orden.getTipoEntrega()) || !"TRANSFERENCIA".equals(orden.getMetodoPago())) {
+            throw new IllegalStateException("Este pedido no se paga por transferencia");
+        }
+        if (orden.getEstado() == OrdenEstado.CANCELADA) throw new IllegalStateException("Este pedido fue cancelado");
+        if (orden.getEstado() == OrdenEstado.PAGADA || orden.getEntregadaAt() != null) {
+            throw new IllegalStateException("Este pedido ya se pagó o se entregó");
+        }
+        // Carpeta privada: el comprobante solo lo ve el personal con sesión (ver archivoComprobante).
+        String ruta = imageStorageService.guardarPrivado(file, "comprobantes", "orden-" + orden.getId(), "El comprobante");
+        imageStorageService.borrarPrivado(orden.getComprobantePath());
+        orden.setComprobantePath(ruta);
+        orden.setComprobanteAt(LocalDateTime.now());
+        orden.setTransferenciaIncluyeEnvio(incluyeEnvio || costoEnvio(orden).signum() == 0);
+        return estadoParaCliente(ordenRepository.save(orden));
     }
 
     /** Plazo para que el cliente reporte cómo llegó su pedido, contado desde la entrega. */

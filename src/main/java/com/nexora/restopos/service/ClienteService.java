@@ -40,6 +40,7 @@ public class ClienteService {
     private final PasswordEncoder passwordEncoder;
     private final com.nexora.restopos.repository.ClienteTokenRepository tokenRepository;
     private final EmailService emailService;
+    private final PublicSiteService publicSiteService;
 
     @org.springframework.beans.factory.annotation.Value("${app.frontend.url}")
     private String frontendUrl;
@@ -229,6 +230,56 @@ public class ClienteService {
         List<PublicPedidoStatus> out = new java.util.ArrayList<>(enCurso);
         out.addAll(terminados);
         return out;
+    }
+
+    /**
+     * "Volver a pedir" un pedido propio: arma sus platillos como líneas de carrito con el menú
+     * vigente (precio de hoy, solo lo que se puede pedir ahora). Los extras se guardaron por
+     * nombre, así que se buscan por grupo + nombre entre las opciones actuales del producto; si
+     * a un platillo le falta un extra obligatorio que ya no existe, no se agrega (el cliente lo
+     * elige de nuevo desde el menú).
+     */
+    @Transactional(readOnly = true)
+    public PublicSiteDtos.RepetirPedido repetirPedido(Cliente c, TiendaInfo info, Long ordenId) {
+        Orden orden = ordenRepository.findById(ordenId)
+                .filter(o -> o.getCliente() != null && o.getCliente().getId().equals(c.getId()))
+                .orElseThrow(() -> new IllegalArgumentException("Pedido no encontrado"));
+        java.util.Map<Long, PublicSiteDtos.Producto> menu = new java.util.HashMap<>();
+        publicSiteService.menu(info.getPublicSlug()).forEach(cat -> cat.productos().forEach(p -> menu.put(p.id(), p)));
+
+        boolean rechazado = orden.getEstado() == OrdenEstado.CANCELADA;
+        List<PublicSiteDtos.LineaCarrito> lineas = new java.util.ArrayList<>();
+        java.util.Set<String> noDisponibles = new java.util.LinkedHashSet<>();
+        java.util.Set<String> cambiaron = new java.util.LinkedHashSet<>();
+        for (OrdenDetalle d : orden.getItems()) {
+            if (Boolean.TRUE.equals(d.getCargoExtra())) continue; // envío a domicilio
+            // En un pedido rechazado todo quedó cancelado; en los demás, lo cancelado no se repite.
+            if (!rechazado && d.getEstado() == OrdenDetalleEstado.CANCELADO) continue;
+            PublicSiteDtos.Producto p = d.getProducto() != null ? menu.get(d.getProducto().getId()) : null;
+            if (p == null) { noDisponibles.add(d.getProductoNombre()); continue; }
+
+            List<PublicSiteDtos.ModCarrito> mods = new java.util.ArrayList<>();
+            boolean faltoExtra = false;
+            for (OrdenDetalleModificador m : d.getModificadores()) {
+                PublicSiteDtos.ModCarrito op = p.grupos().stream()
+                        .filter(g -> g.nombre().equalsIgnoreCase(m.getGrupoNombre()))
+                        .flatMap(g -> g.opciones().stream()
+                                .filter(o -> o.nombre().equalsIgnoreCase(m.getNombre()))
+                                .map(o -> new PublicSiteDtos.ModCarrito(o.id(), o.nombre(), o.precioExtra(), g.nombre())))
+                        .findFirst().orElse(null);
+                if (op == null) faltoExtra = true; else mods.add(op);
+            }
+            java.util.Set<Long> elegidas = mods.stream().map(PublicSiteDtos.ModCarrito::id).collect(java.util.stream.Collectors.toSet());
+            boolean faltaObligatorio = p.grupos().stream().anyMatch(g -> g.obligatorio()
+                    && g.opciones().stream().noneMatch(o -> elegidas.contains(o.id())));
+            if (faltaObligatorio) { cambiaron.add(p.nombre()); continue; }
+            if (faltoExtra) cambiaron.add(p.nombre());
+
+            int cantidad = Math.max(1, Math.min(99, d.getCantidad().setScale(0, java.math.RoundingMode.HALF_UP).intValue()));
+            String nota = d.getObservaciones() != null ? d.getObservaciones().trim() : "";
+            lineas.add(new PublicSiteDtos.LineaCarrito(p.id(), p.nombre(), p.precio(), p.imageUrl(), mods, nota, cantidad));
+        }
+        return new PublicSiteDtos.RepetirPedido(lineas, List.copyOf(noDisponibles), List.copyOf(cambiaron));
     }
 
     /** Reseña de un pedido propio ya entregado; una sola vez por pedido. */

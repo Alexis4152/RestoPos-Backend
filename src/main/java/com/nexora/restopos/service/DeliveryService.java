@@ -34,6 +34,8 @@ public class DeliveryService {
     private final TiendaInfoRepository tiendaInfoRepository;
     private final TenantScope tenantScope;
     private final AuditoriaService auditoriaService;
+    private final com.nexora.restopos.repository.EntregaEventoRepository entregaEventoRepository;
+    private final com.nexora.restopos.repository.PagoRepository pagoRepository;
 
     /** Envíos a domicilio sin entregar de la tienda del actor (los tomados por otros incluidos). */
     public List<Orden> pendientes(User actor) {
@@ -60,8 +62,11 @@ public class DeliveryService {
         if (orden.getRepartidor() != null && !orden.getRepartidor().getId().equals(actor.getId())) {
             throw new IllegalStateException("Este pedido ya lo lleva " + orden.getRepartidor().getName());
         }
+        if (orden.getRepartidor() != null) return orden; // ya era suyo: no se repite en el histórico
         orden.setRepartidor(actor);
+        orden.setTomadaAt(LocalDateTime.now());
         Orden saved = ordenRepository.save(orden);
+        evento(saved, "TOMADO", actor, actor, null);
         auditoriaService.log(actor, "TOMAR_ENTREGA", "Orden", saved.getId(), null, actor.getName(), null);
         return saved;
     }
@@ -83,6 +88,7 @@ public class DeliveryService {
         }
         orden.setEnCaminoAt(LocalDateTime.now());
         Orden saved = ordenRepository.save(orden);
+        evento(saved, "EN_CAMINO", actor, actor, null);
         auditoriaService.log(actor, "EN_CAMINO_ENTREGA", "Orden", saved.getId(), null, actor.getName(), null);
         return saved;
     }
@@ -103,9 +109,12 @@ public class DeliveryService {
         if (!orden.getRepartidor().getId().equals(actor.getId()) && !tenantScope.isAdminLevel(actor)) {
             throw new IllegalStateException("Solo quien lleva el pedido puede soltarlo");
         }
-        String anterior = orden.getRepartidor().getName();
+        User anteriorRepartidor = orden.getRepartidor();
+        String anterior = anteriorRepartidor.getName();
         orden.setRepartidor(null);
+        orden.setTomadaAt(null);
         Orden saved = ordenRepository.save(orden);
+        evento(saved, "SOLTADO", anteriorRepartidor, actor, null);
         auditoriaService.log(actor, "SOLTAR_ENTREGA", "Orden", saved.getId(), anterior, null, null);
         return saved;
     }
@@ -144,9 +153,14 @@ public class DeliveryService {
             }
         }
         orden = ordenService.findById(ordenId, actor);
-        if (orden.getRepartidor() == null) orden.setRepartidor(actor);
+        if (orden.getRepartidor() == null) {
+            orden.setRepartidor(actor);
+            orden.setTomadaAt(LocalDateTime.now());
+        }
         orden.setEntregadaAt(LocalDateTime.now());
         Orden saved = ordenRepository.save(orden);
+        evento(saved, "ENTREGADO", saved.getRepartidor(), actor, req.getMetodo() != null
+                ? (req.getMetodo() == PaymentMethod.CASH ? "Cobró en efectivo" : "Cobró por transferencia") : "Ya estaba pagado");
         auditoriaService.log(actor, "ENTREGAR_PEDIDO", "Orden", saved.getId(), null,
                 req.getMetodo() != null ? req.getMetodo().name() : "YA_PAGADO", null);
         return saved;
@@ -177,19 +191,127 @@ public class DeliveryService {
             throw new IllegalArgumentException("El efectivo recibido es menor al total a cobrar (" + saldo + ")");
         }
 
+        if (metodo == PaymentMethod.CASH) {
+            pagarCuentas(pendientes, PaymentMethod.CASH, saldo, req.getRecibido(), null, actor);
+            return;
+        }
+
+        // Pedido capturado en caja: el cliente no tiene seguimiento web para subir comprobante,
+        // el repartidor lo confirma en su celular como antes.
+        if (!"WEB".equals(orden.getOrigen())) {
+            pagarCuentas(pendientes, PaymentMethod.TRANSFER, saldo, null, req.getReferencia(), actor);
+            return;
+        }
+
+        // Pedido web: el cliente comprueba la transferencia subiendo la foto desde su
+        // seguimiento. Si dijo que NO incluye el envío, se registra por transferencia el saldo
+        // sin el envío y el envío lo cobra el repartidor en efectivo.
+        if (orden.getComprobantePath() == null) {
+            throw new IllegalStateException("El cliente todavía no sube el comprobante de su transferencia; cóbrale en efectivo o espera a que lo suba");
+        }
+        BigDecimal envioEnEfectivo = Boolean.FALSE.equals(orden.getTransferenciaIncluyeEnvio())
+                ? OrdenService.costoEnvio(orden).min(saldo) : BigDecimal.ZERO;
+        if (envioEnEfectivo.signum() > 0) {
+            if (req.getRecibido() == null || req.getRecibido().compareTo(envioEnEfectivo) < 0) {
+                throw new IllegalArgumentException("Cobra el envío en efectivo (" + envioEnEfectivo + "): captura con cuánto pagó el cliente");
+            }
+        }
+        String referencia = "Comprobante web " + orden.getComprobantePath();
+        pagarCuentas(pendientes, PaymentMethod.TRANSFER, saldo.subtract(envioEnEfectivo), null,
+                referencia.length() > 100 ? referencia.substring(0, 100) : referencia, actor);
+        if (envioEnEfectivo.signum() > 0) {
+            // Releer: los pagos anteriores ya actualizaron lo pagado de cada cuenta.
+            List<Cuenta> conSaldo = cuentaService.findAllByOrden(orden.getId(), actor).stream()
+                    .filter(c -> c.getEstado() == CuentaEstado.PENDIENTE)
+                    .toList();
+            pagarCuentas(conSaldo, PaymentMethod.CASH, envioEnEfectivo, req.getRecibido(), null, actor);
+        }
+    }
+
+    /**
+     * Reparte {@code monto} entre las cuentas pendientes (en orden) con un mismo método. El
+     * efectivo recibido (para el cambio) se registra una sola vez, en el primer pago.
+     */
+    private void pagarCuentas(List<Cuenta> cuentas, PaymentMethod metodo, BigDecimal monto,
+                              BigDecimal recibido, String referencia, User actor) {
+        BigDecimal restante = monto;
         boolean primero = true;
-        for (Cuenta c : pendientes) {
-            BigDecimal monto = c.getTotal().subtract(c.getTotalPagado());
-            if (monto.compareTo(BigDecimal.ZERO) <= 0) continue;
+        for (Cuenta c : cuentas) {
+            if (restante.signum() <= 0) break;
+            BigDecimal saldoCuenta = c.getTotal().subtract(c.getTotalPagado());
+            if (saldoCuenta.signum() <= 0) continue;
+            BigDecimal parte = saldoCuenta.min(restante);
             PagoRequest pago = new PagoRequest();
             pago.setMetodo(metodo);
-            pago.setMonto(monto);
-            // El efectivo recibido (para el cambio) se registra una sola vez, en el primer pago.
-            if (metodo == PaymentMethod.CASH && primero) pago.setRecibido(req.getRecibido());
-            if (metodo == PaymentMethod.TRANSFER) pago.setReferencia(req.getReferencia());
+            pago.setMonto(parte);
+            if (metodo == PaymentMethod.CASH && primero) pago.setRecibido(recibido);
+            pago.setReferencia(referencia);
             pagoService.registrar(c.getId(), pago, actor);
+            restante = restante.subtract(parte);
             primero = false;
         }
+    }
+
+    private void evento(Orden orden, String tipo, User repartidor, User actor, String detalle) {
+        entregaEventoRepository.save(EntregaEvento.builder()
+                .ordenId(orden.getId()).tipo(tipo).repartidor(repartidor).actor(actor).detalle(detalle).build());
+    }
+
+    /**
+     * Seguimiento del envío para el punto de venta: estado actual y el histórico de pasos del
+     * repartidor. Para envíos anteriores a que existiera el histórico, se arma con las horas
+     * guardadas en la orden.
+     */
+    public com.nexora.restopos.dto.EntregaSeguimiento seguimiento(Long ordenId, User actor) {
+        Orden orden = ordenService.findById(ordenId, actor);
+        if (!"DOMICILIO".equals(orden.getTipoEntrega())) throw new IllegalArgumentException("Este pedido no es a domicilio");
+        List<com.nexora.restopos.dto.EntregaSeguimiento.Evento> eventos = entregaEventoRepository
+                .findByOrdenIdOrderByCreatedAtAscIdAsc(ordenId).stream()
+                .map(e -> new com.nexora.restopos.dto.EntregaSeguimiento.Evento(e.getTipo(),
+                        e.getRepartidor() != null ? e.getRepartidor().getName() : null,
+                        e.getActor() != null && (e.getRepartidor() == null || !e.getActor().getId().equals(e.getRepartidor().getId()))
+                                ? e.getActor().getName() : null,
+                        e.getDetalle(), e.getCreatedAt()))
+                .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
+        String nombre = orden.getRepartidor() != null ? orden.getRepartidor().getName() : null;
+        if (eventos.isEmpty()) {
+            if (orden.getTomadaAt() != null) eventos.add(new com.nexora.restopos.dto.EntregaSeguimiento.Evento("TOMADO", nombre, null, null, orden.getTomadaAt()));
+            if (orden.getEnCaminoAt() != null) eventos.add(new com.nexora.restopos.dto.EntregaSeguimiento.Evento("EN_CAMINO", nombre, null, null, orden.getEnCaminoAt()));
+            if (orden.getEntregadaAt() != null) eventos.add(new com.nexora.restopos.dto.EntregaSeguimiento.Evento("ENTREGADO", nombre, null, null, orden.getEntregadaAt()));
+        }
+        String estado;
+        if (orden.getEstado() == OrdenEstado.CANCELADA) estado = "CANCELADO";
+        else if (orden.getEntregadaAt() != null) estado = "ENTREGADO";
+        else if (orden.getEnCaminoAt() != null) estado = "EN_CAMINO";
+        else if (orden.getRepartidor() != null) estado = "TOMADO";
+        else estado = "SIN_REPARTIDOR";
+        return new com.nexora.restopos.dto.EntregaSeguimiento(estado, nombre, orden.getTomadaAt(),
+                orden.getEnCaminoAt(), orden.getEntregadaAt(), eventos, cobro(orden));
+    }
+
+    private com.nexora.restopos.dto.EntregaSeguimiento.Cobro cobro(Orden orden) {
+        List<Pago> pagos = pagoRepository.findByCuentaOrdenIdAndCanceladoFalseOrderByCreatedAtAsc(orden.getId());
+        BigDecimal total = orden.getTotal() != null ? orden.getTotal() : BigDecimal.ZERO;
+        BigDecimal pagado = pagos.stream().map(Pago::getMonto).reduce(BigDecimal.ZERO, BigDecimal::add);
+        boolean cobrado = orden.getEstado() == OrdenEstado.PAGADA;
+        BigDecimal pendiente = cobrado ? BigDecimal.ZERO : total.subtract(pagado).max(BigDecimal.ZERO);
+        List<com.nexora.restopos.dto.EntregaSeguimiento.PagoInfo> lista = pagos.stream()
+                .map(p -> new com.nexora.restopos.dto.EntregaSeguimiento.PagoInfo(p.getMetodo().name(), p.getMonto(),
+                        p.getUsuario() != null ? p.getUsuario().getName() : null, p.getCreatedAt()))
+                .toList();
+        com.nexora.restopos.dto.EntregaSeguimiento.Transferencia transferencia = null;
+        if ("WEB".equals(orden.getOrigen()) && "TRANSFERENCIA".equals(orden.getMetodoPago())) {
+            BigDecimal envio = OrdenService.costoEnvio(orden);
+            // Sin envío: transfiere solo los platillos y el envío se le paga en efectivo al repartidor.
+            boolean sinEnvio = Boolean.FALSE.equals(orden.getTransferenciaIncluyeEnvio());
+            BigDecimal envioEfectivo = sinEnvio ? envio.min(total) : BigDecimal.ZERO;
+            boolean confirmada = pagos.stream().anyMatch(p -> p.getMetodo() == PaymentMethod.TRANSFER);
+            transferencia = new com.nexora.restopos.dto.EntregaSeguimiento.Transferencia(
+                    orden.getComprobantePath() != null, orden.getComprobanteAt(), orden.getTransferenciaIncluyeEnvio(),
+                    envio, total.subtract(envioEfectivo), envioEfectivo, confirmada);
+        }
+        return new com.nexora.restopos.dto.EntregaSeguimiento.Cobro(cobrado, total, pagado, pendiente,
+                orden.getMetodoPago(), orden.getComprobantePath() != null, lista, transferencia);
     }
 
     /** Envío a domicilio de la tienda del actor, ya aceptado, no cancelado y sin entregar. */

@@ -117,11 +117,27 @@ public class Orden {
     @JoinColumn(name = "repartidor_id")
     private User repartidor;
 
+    // Cuándo lo tomó el repartidor actual ("Lo llevo yo"); null si nadie lo ha tomado o lo soltó.
+    private LocalDateTime tomadaAt;
+
     private LocalDateTime entregadaAt;
 
     // Cuándo el repartidor marcó "Voy en camino" (solo se puede después de que el restaurante
     // se lo entregó, ver DeliveryService#enCamino). A partir de aquí el cliente ve "En camino".
     private LocalDateTime enCaminoAt;
+
+    // Pedido web a domicilio pagado por transferencia: foto del comprobante que subió el
+    // cliente (ruta relativa en la carpeta PRIVADA app.private-uploads.dir, no es pública: se
+    // lee por GET /api/comprobantes/orden/{id} con sesión del personal). Mientras no la suba,
+    // el repartidor lo ve "Por cobrar".
+    @Column(length = 255)
+    private String comprobantePath;
+
+    private LocalDateTime comprobanteAt;
+
+    // Lo decide el cliente al subir el comprobante: true = la transferencia incluye el costo
+    // de envío; false = transfirió solo los platillos y el envío se le paga en efectivo al repartidor.
+    private Boolean transferenciaIncluyeEnvio;
 
     // Cliente registrado de la página web que hizo el pedido (null = invitado o pedido de caja).
     @JsonIgnoreProperties({"tienda"})

@@ -86,6 +86,19 @@ public class PublicController {
         return ResponseEntity.ok(ApiResponse.ok(ordenService.estadoPedidoWeb(publicSiteService.resolve(slug), token)));
     }
 
+    /**
+     * Foto del comprobante de transferencia (PNG/JPG/WEBP, máx. 3 MB), por código de seguimiento.
+     * {@code incluyeEnvio}: si la transferencia incluye el costo de envío (si no, el envío se le
+     * paga en efectivo al repartidor).
+     */
+    @PostMapping(value = "/seguimiento/{token}/comprobante", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ApiResponse<PublicPedidoStatus>> subirComprobante(@PathVariable String slug, @PathVariable String token,
+                                                                            @RequestParam("file") org.springframework.web.multipart.MultipartFile file,
+                                                                            @RequestParam(defaultValue = "true") boolean incluyeEnvio) {
+        return ResponseEntity.ok(ApiResponse.ok(ordenService.subirComprobanteWeb(publicSiteService.resolve(slug), token, file, incluyeEnvio),
+                "Recibimos tu comprobante"));
+    }
+
     /** Avisos en tiempo real del seguimiento de UN pedido (SSE), por su código de seguimiento. */
     @GetMapping(value = "/seguimiento/{token}/eventos", produces = org.springframework.http.MediaType.TEXT_EVENT_STREAM_VALUE)
     public org.springframework.web.servlet.mvc.method.annotation.SseEmitter eventosPedido(@PathVariable String slug, @PathVariable String token,
@@ -240,6 +253,18 @@ public class PublicController {
         return ResponseEntity.ok(ApiResponse.ok(clienteService.misPedidos(c, desde, hasta)));
     }
 
+    /** Foto del comprobante de transferencia de un pedido propio, desde "Mis pedidos" (ver subirComprobante). */
+    @PostMapping(value = "/clientes/me/pedidos/{id}/comprobante", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ApiResponse<PublicPedidoStatus>> subirComprobanteCliente(@PathVariable String slug, @PathVariable Long id,
+                                                                                   @RequestHeader(value = CLIENTE_HEADER, required = false) String token,
+                                                                                   @RequestParam("file") org.springframework.web.multipart.MultipartFile file,
+                                                                                   @RequestParam(defaultValue = "true") boolean incluyeEnvio) {
+        TiendaInfo info = publicSiteService.resolve(slug);
+        Cliente c = clienteService.autenticar(info, token);
+        return ResponseEntity.ok(ApiResponse.ok(ordenService.subirComprobanteCliente(info, c, id, file, incluyeEnvio),
+                "Recibimos tu comprobante"));
+    }
+
     /** Reporte de cómo llegó un pedido propio (bien / mal / faltó algo), hasta 24 h después de la entrega. */
     @PostMapping("/clientes/me/pedidos/{id}/reporte")
     public ResponseEntity<ApiResponse<PublicPedidoStatus>> reportar(@PathVariable String slug, @PathVariable Long id,
@@ -247,6 +272,15 @@ public class PublicController {
                                                                     @Valid @RequestBody ClienteRequests.Reporte req) {
         Cliente c = clienteService.autenticar(publicSiteService.resolve(slug), token);
         return ResponseEntity.ok(ApiResponse.ok(clienteService.reportar(c, id, req), "¡Gracias! Recibimos tu reporte"));
+    }
+
+    /** "Volver a pedir": los platillos de un pedido propio, listos para el carrito (menú y precios de hoy). */
+    @GetMapping("/clientes/me/pedidos/{id}/repetir")
+    public ResponseEntity<ApiResponse<PublicSiteDtos.RepetirPedido>> repetir(@PathVariable String slug, @PathVariable Long id,
+                                                                            @RequestHeader(value = CLIENTE_HEADER, required = false) String token) {
+        TiendaInfo info = publicSiteService.resolve(slug);
+        Cliente c = clienteService.autenticar(info, token);
+        return ResponseEntity.ok(ApiResponse.ok(clienteService.repetirPedido(c, info, id)));
     }
 
     /** Cuentas pagadas de una visita al restaurante propia, para opinar de cada una. */

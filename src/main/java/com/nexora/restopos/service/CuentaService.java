@@ -186,19 +186,24 @@ public class CuentaService {
         if ("WEB".equals(orden.getOrigen()) && "DOMICILIO".equals(orden.getTipoEntrega())) {
             throw new IllegalStateException("Este pedido web a domicilio lo cobra el repartidor al entregarlo");
         }
-        return crear(ordenId, req, actor);
-    }
-
-    @Transactional
-    public Cuenta crear(Long ordenId, CuentaCreateRequest req, User actor) {
+        // En caja solo se cobra lo que ya se entregó (a la mesa o al cliente para llevar).
         try {
-            return crearInternal(ordenId, req, actor);
+            return crearInternal(ordenId, req, actor, true);
         } catch (ObjectOptimisticLockingFailureException e) {
             throw new IllegalStateException("La orden se modificó al mismo tiempo, intenta de nuevo");
         }
     }
 
-    private Cuenta crearInternal(Long ordenId, CuentaCreateRequest req, User actor) {
+    @Transactional
+    public Cuenta crear(Long ordenId, CuentaCreateRequest req, User actor) {
+        try {
+            return crearInternal(ordenId, req, actor, false);
+        } catch (ObjectOptimisticLockingFailureException e) {
+            throw new IllegalStateException("La orden se modificó al mismo tiempo, intenta de nuevo");
+        }
+    }
+
+    private Cuenta crearInternal(Long ordenId, CuentaCreateRequest req, User actor, boolean exigirEntregados) {
         Orden orden = ordenService.findById(ordenId, actor);
         if (orden.getEstado() == OrdenEstado.PAGADA || orden.getEstado() == OrdenEstado.CANCELADA) {
             throw new IllegalStateException("La orden ya está cerrada");
@@ -251,6 +256,18 @@ public class CuentaService {
 
         if (aFacturar.isEmpty()) {
             throw new IllegalStateException("No hay productos pendientes de pago");
+        }
+        if (exigirEntregados) {
+            // Los cargos (envío) no pasan por cocina; todo lo demás debe estar marcado como entregado.
+            List<String> sinEntregar = aFacturar.stream()
+                    .map(PorFacturar::item)
+                    .filter(i -> !Boolean.TRUE.equals(i.getCargoExtra()) && i.getEstado() != OrdenDetalleEstado.ENTREGADO)
+                    .map(OrdenDetalle::getProductoNombre)
+                    .distinct()
+                    .toList();
+            if (!sinEntregar.isEmpty()) {
+                throw new IllegalStateException("Primero marca como entregado: " + String.join(", ", sinEntregar));
+            }
         }
 
         Cuenta cuenta = new Cuenta();

@@ -53,6 +53,20 @@ public final class PublicSiteDtos {
      */
     public record PedidoCreado(Long id, BigDecimal total, String token) {}
 
+    /** Línea lista para el carrito de la página web (mismo formato que arma el frontend). */
+    public record LineaCarrito(Long productoId, String nombre, BigDecimal precio, String imageUrl,
+                               List<ModCarrito> mods, String nota, int cantidad) {}
+
+    /** Extra elegido en una línea del carrito (con el nombre de su grupo, como lo muestra el carrito). */
+    public record ModCarrito(Long id, String nombre, BigDecimal precioExtra, String grupo) {}
+
+    /**
+     * "Volver a pedir": las líneas de un pedido anterior armadas con el menú de HOY (precios
+     * actuales). {@code noDisponibles}: lo que ya no se vende o no está disponible ahora;
+     * {@code cambiaron}: platillos que se agregaron sin algún extra que ya no existe.
+     */
+    public record RepetirPedido(List<LineaCarrito> lineas, List<String> noDisponibles, List<String> cambiaron) {}
+
     /** Perfil del cliente registrado (sin contraseña). */
     public record ClientePerfil(Long id, String nombre, String telefono, String direccion, String email, boolean emailVerificado) {}
 

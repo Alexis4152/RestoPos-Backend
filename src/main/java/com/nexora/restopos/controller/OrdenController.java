@@ -31,6 +31,14 @@ public class OrdenController {
 
     private final OrdenService ordenService;
     private final com.nexora.restopos.service.OpinionService opinionService;
+    private final com.nexora.restopos.service.DeliveryService deliveryService;
+
+    /** Envío a domicilio: estado (sin repartidor / tomado / en camino / entregado) e histórico de pasos. */
+    @GetMapping("/{id}/entrega")
+    public ResponseEntity<ApiResponse<com.nexora.restopos.dto.EntregaSeguimiento>> entrega(@PathVariable Long id,
+                                                                                           @AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(deliveryService.seguimiento(id, actor)));
+    }
 
     /**
      * Órdenes para llevar (sin mesa) activas — ni pagadas ni canceladas —, más antiguas

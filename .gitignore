@@ -13,6 +13,7 @@ nbdist/
 
 # Archivos subidos por usuarios (logos de tienda) — datos runtime, no código
 uploads/
+private-uploads/
 
 # Certificado/llave de firma de QZ Tray (impresión térmica) — se genera una vez por
 # entorno, nunca debe versionarse (ver QzSigningService)

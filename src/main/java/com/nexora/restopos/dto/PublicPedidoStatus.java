@@ -29,7 +29,13 @@ public record PublicPedidoStatus(
         LocalDateTime reportarHasta,
         boolean puedeReportar,
         // Solo órdenes de mesa (tipoEntrega = "MESA"): número de mesa.
-        String mesa
+        String mesa,
+        // Pago por transferencia a domicilio: costo de envío del pedido (para que el cliente
+        // decida si lo incluye), si ya subió la foto del comprobante (la foto solo la ve el
+        // personal) y si la transferencia lo incluye.
+        BigDecimal costoEnvio,
+        boolean comprobanteEnviado,
+        Boolean transferenciaIncluyeEnvio
 ) {
     public record Linea(Long id, String nombre, BigDecimal cantidad, BigDecimal subtotal, List<String> modificadores) {}
 }
