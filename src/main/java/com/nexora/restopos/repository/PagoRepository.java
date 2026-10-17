@@ -31,4 +31,13 @@ public interface PagoRepository extends JpaRepository<Pago, Long> {
                     "AND (:tiendaId IS NULL OR o.tienda_id = :tiendaId) " +
                     "GROUP BY dia ORDER BY dia", nativeQuery = true)
     List<Object[]> salesByDay(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to, @Param("tiendaId") Long tiendaId);
+
+    /**
+     * Totales de los pagos de un corte agrupados por método y si se cancelaron: filas
+     * {@code [PaymentMethod, Boolean cancelado, cantidad, suma]}. Lo usa el cálculo del
+     * efectivo esperado ({@code CashBalanceCalculator}): una sola consulta agregada.
+     */
+    @Query("SELECT p.metodo, p.cancelado, COUNT(p), COALESCE(SUM(p.monto), 0) FROM Pago p " +
+           "WHERE p.cashCut.id = :cutId GROUP BY p.metodo, p.cancelado")
+    List<Object[]> sumByCashCut(@Param("cutId") Long cutId);
 }

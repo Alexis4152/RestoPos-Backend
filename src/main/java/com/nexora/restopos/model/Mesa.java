@@ -76,6 +76,16 @@ public class Mesa {
 
     private LocalDateTime deletedAt;
 
+    /**
+     * Si esta mesa está unida a otra (comparte la orden de la mesa principal), el número de
+     * la principal; null si es la principal o está libre. Solo para el JSON del plano.
+     */
+    @com.fasterxml.jackson.annotation.JsonProperty("unidaA")
+    public String getUnidaA() {
+        if (ordenActiva == null || ordenActiva.getMesa() == null || ordenActiva.getMesa().getId().equals(id)) return null;
+        return ordenActiva.getMesa().getNumero();
+    }
+
     @CreationTimestamp
     private LocalDateTime createdAt;
 

@@ -20,6 +20,9 @@ public interface MesaRepository extends JpaRepository<Mesa, Long> {
 
     boolean existsByNumeroAndTiendaIdAndIsActiveTrue(String numero, Long tiendaId);
 
+    /** Todas las mesas ocupadas por una orden: la principal y las que se le unieron. */
+    List<Mesa> findByOrdenActivaId(Long ordenId);
+
     /** Usado por {@code ZonaService#delete} para impedir borrar una zona que todavía tiene mesas activas. */
     boolean existsByZonaIdAndIsActiveTrue(Long zonaId);
 }

@@ -58,6 +58,7 @@ public class OrdenService {
     private final TiendaInfoRepository tiendaInfoRepository;
     private final ProductRepository productRepository;
     private final com.nexora.restopos.repository.ClienteRepository clienteRepository;
+    private final jakarta.persistence.EntityManager entityManager;
     private final TenantScope tenantScope;
     private final AuditoriaService auditoriaService;
     private final ImageStorageService imageStorageService;
@@ -901,12 +902,25 @@ public class OrdenService {
         auditoriaService.log(actor, "CANCELAR_ORDEN", "Orden", orden.getId(), anterior, orden.getEstado(), motivo);
     }
 
+    /**
+     * Avisos informativos del centro de notificaciones: reportes de clientes con problema
+     * (últimas 24 h) y envíos a domicilio entregados (últimas 3 h), de la tienda del actor.
+     */
+    public java.util.Map<String, List<Orden>> avisosRecientes(User actor) {
+        Long scope = tenantScope.scopeId(actor);
+        LocalDateTime ahora = LocalDateTime.now();
+        return java.util.Map.of(
+                "reportes", ordenRepository.findReportesProblemaDesde(scope, ahora.minusHours(24)),
+                "entregados", ordenRepository.findEntregadosDesde(scope, ahora.minusHours(3)));
+    }
+
     /** Llamado por {@link CuentaService} cuando se crea una cuenta: la mesa pasa a "en espera de cobro". */
     public void marcarPendienteDePago(Orden orden) {
         if (orden.getMesa() != null && orden.getMesa().getEstado() == MesaEstado.OCUPADA) {
-            Mesa mesa = orden.getMesa();
-            mesa.setEstado(MesaEstado.PENDIENTE_PAGO);
-            mesaRepository.save(mesa);
+            for (Mesa mesa : mesasDe(orden)) {
+                mesa.setEstado(MesaEstado.PENDIENTE_PAGO);
+                mesaRepository.save(mesa);
+            }
         }
         if (orden.getEstado() == OrdenEstado.EN_PROCESO || orden.getEstado() == OrdenEstado.LISTA) {
             orden.setEstado(OrdenEstado.PENDIENTE_PAGO);
@@ -936,9 +950,10 @@ public class OrdenService {
         boolean hayPendientes = cuentaRepository.findByOrdenIdOrderByCreatedAtAsc(orden.getId()).stream()
                 .anyMatch(c -> c.getEstado() == CuentaEstado.PENDIENTE);
         if (!hayPendientes) {
-            Mesa mesa = orden.getMesa();
-            mesa.setEstado(MesaEstado.OCUPADA);
-            mesaRepository.save(mesa);
+            for (Mesa mesa : mesasDe(orden)) {
+                mesa.setEstado(MesaEstado.OCUPADA);
+                mesaRepository.save(mesa);
+            }
             if (orden.getEstado() == OrdenEstado.PENDIENTE_PAGO) {
                 orden.setEstado(OrdenEstado.EN_PROCESO);
                 ordenRepository.save(orden);
@@ -946,12 +961,161 @@ public class OrdenService {
         }
     }
 
+    /**
+     * Mueve una orden de mesa a otra mesa libre de la misma tienda (el cliente se cambió de
+     * lugar): la mesa destino toma el estado de la de origen (ocupada / cuenta pedida) y la
+     * orden, y la de origen queda libre. Comensales, productos, cuentas y pagos siguen en la
+     * misma orden, así que no se pierde nada.
+     */
+    @Transactional
+    public Orden moverMesa(Long ordenId, Long mesaDestinoId, User actor) {
+        Orden orden = findById(ordenId, actor);
+        ensureModificable(orden);
+        Mesa origen = orden.getMesa();
+        if (origen == null) throw new IllegalArgumentException("Esta orden no es de mesa");
+        if (mesaDestinoId == null) throw new IllegalArgumentException("Elige la mesa a la que se mueve");
+        if (origen.getId().equals(mesaDestinoId)) return orden;
+        Mesa destino = mesaRepository.findById(mesaDestinoId)
+                .filter(m -> Boolean.TRUE.equals(m.getIsActive()))
+                .filter(m -> m.getTienda() != null && orden.getTienda() != null && m.getTienda().getId().equals(orden.getTienda().getId()))
+                .orElseThrow(() -> new IllegalArgumentException("Mesa no encontrada"));
+        if (destino.getOrdenActiva() != null
+                || (destino.getEstado() != MesaEstado.DISPONIBLE && destino.getEstado() != MesaEstado.RESERVADA)) {
+            throw new IllegalStateException("La mesa " + destino.getNumero() + " no está libre");
+        }
+        destino.setEstado(origen.getEstado() == MesaEstado.PENDIENTE_PAGO ? MesaEstado.PENDIENTE_PAGO : MesaEstado.OCUPADA);
+        destino.setOrdenActiva(orden);
+        origen.setEstado(MesaEstado.DISPONIBLE);
+        origen.setOrdenActiva(null);
+        mesaRepository.save(origen);
+        mesaRepository.save(destino);
+        orden.setMesa(destino);
+        Orden saved = ordenRepository.save(orden);
+        auditoriaService.log(actor, "MOVER_MESA", "Orden", saved.getId(), "Mesa " + origen.getNumero(), "Mesa " + destino.getNumero(), null);
+        return saved;
+    }
+
     private void liberarMesa(Orden orden) {
         if (orden.getMesa() == null) return;
-        Mesa mesa = orden.getMesa();
-        mesa.setEstado(MesaEstado.DISPONIBLE);
+        // La principal y las que se le unieron (ver #unirMesa).
+        for (Mesa mesa : mesasDe(orden)) {
+            mesa.setEstado(MesaEstado.DISPONIBLE);
+            mesa.setOrdenActiva(null);
+            mesaRepository.save(mesa);
+        }
+    }
+
+    /** Mesas ocupadas por la orden: la principal más las unidas (sin repetir). */
+    private List<Mesa> mesasDe(Orden orden) {
+        java.util.LinkedHashMap<Long, Mesa> out = new java.util.LinkedHashMap<>();
+        if (orden.getMesa() != null) out.put(orden.getMesa().getId(), orden.getMesa());
+        if (orden.getId() != null) mesaRepository.findByOrdenActivaId(orden.getId()).forEach(m -> out.putIfAbsent(m.getId(), m));
+        return new java.util.ArrayList<>(out.values());
+    }
+
+    /**
+     * Une otra mesa a la orden de mesa {@code ordenId} (grupo grande o dos mesas que se juntan):
+     * <ul>
+     *   <li>mesa libre: queda ocupada por esta misma orden;</li>
+     *   <li>mesa con su propia orden: sus productos y comensales pasan a esta orden
+     *       (comensales renumerados después de los de aquí) y aquella orden, ya vacía, se
+     *       cierra como cancelada con el motivo "Unida a la mesa X". No se permite si esa
+     *       orden ya tiene cuentas generadas (habría cobros a medias).</li>
+     * </ul>
+     * Al cobrar o cancelar esta orden se liberan todas sus mesas.
+     */
+    @Transactional
+    public Orden unirMesa(Long ordenId, Long mesaId, User actor) {
+        Orden orden = findById(ordenId, actor);
+        ensureModificable(orden);
+        if (orden.getMesa() == null) throw new IllegalArgumentException("Solo se pueden unir mesas a una orden de mesa");
+        if (mesaId == null) throw new IllegalArgumentException("Elige la mesa que se une");
+        Mesa mesa = mesaRepository.findById(mesaId)
+                .filter(m -> Boolean.TRUE.equals(m.getIsActive()))
+                .filter(m -> m.getTienda() != null && orden.getTienda() != null && m.getTienda().getId().equals(orden.getTienda().getId()))
+                .orElseThrow(() -> new IllegalArgumentException("Mesa no encontrada"));
+        if (mesa.getOrdenActiva() != null && mesa.getOrdenActiva().getId().equals(orden.getId())) {
+            throw new IllegalStateException("La mesa " + mesa.getNumero() + " ya está unida a esta orden");
+        }
+        MesaEstado estadoPrincipal = orden.getMesa().getEstado() == MesaEstado.PENDIENTE_PAGO ? MesaEstado.PENDIENTE_PAGO : MesaEstado.OCUPADA;
+
+        Orden otra = mesa.getOrdenActiva();
+        if (otra == null) {
+            if (mesa.getEstado() != MesaEstado.DISPONIBLE && mesa.getEstado() != MesaEstado.RESERVADA) {
+                throw new IllegalStateException("La mesa " + mesa.getNumero() + " no está disponible");
+            }
+            mesa.setOrdenActiva(orden);
+            mesa.setEstado(estadoPrincipal);
+            mesaRepository.save(mesa);
+            auditoriaService.log(actor, "UNIR_MESA", "Orden", orden.getId(), null, "Mesa " + mesa.getNumero(), "Mesa libre");
+            return orden;
+        }
+
+        // La mesa tiene su propia orden: se fusiona en esta.
+        Long otraId = otra.getId();
+        if (otra.getEstado() == OrdenEstado.PAGADA || otra.getEstado() == OrdenEstado.CANCELADA) {
+            throw new IllegalStateException("La orden de la mesa " + mesa.getNumero() + " ya está cerrada");
+        }
+        boolean otraConCuentas = cuentaRepository.findByOrdenIdOrderByCreatedAtAsc(otraId).stream()
+                .anyMatch(c -> c.getEstado() != CuentaEstado.CANCELADA);
+        if (otraConCuentas) {
+            throw new IllegalStateException("La mesa " + mesa.getNumero() + " ya tiene cuentas generadas: cóbralas o cancélalas antes de unirla");
+        }
+        boolean estaConCuentasPendientes = cuentaRepository.findByOrdenIdOrderByCreatedAtAsc(orden.getId()).stream()
+                .anyMatch(c -> c.getEstado() == CuentaEstado.PENDIENTE);
+        int desplazar = orden.getComensales().stream().mapToInt(c -> c.getNumero() == null ? 0 : c.getNumero()).max().orElse(0);
+        int comensalesOtra = otra.getNumeroComensales() == null ? 0 : otra.getNumeroComensales();
+        String mesasOtra = mesasDe(otra).stream().map(Mesa::getNumero).collect(Collectors.joining(", "));
+
+        // Se guarda todo lo pendiente y se mueven productos y comensales en bloque (sin pasar
+        // por las colecciones con orphanRemoval, que los borrarían).
+        entityManager.flush();
+        comensalRepository.moverAOrden(otraId, orden.getId(), desplazar);
+        ordenDetalleRepository.moverAOrden(otraId, orden.getId());
+        entityManager.clear();
+
+        Orden principal = findById(ordenId, actor);
+        Orden vacia = findById(otraId, actor);
+        // Las mesas de la otra orden pasan a esta.
+        for (Mesa m : mesaRepository.findByOrdenActivaId(otraId)) {
+            m.setOrdenActiva(principal);
+            m.setEstado(estaConCuentasPendientes ? MesaEstado.PENDIENTE_PAGO : estadoPrincipal);
+            mesaRepository.save(m);
+        }
+        principal.setNumeroComensales((principal.getNumeroComensales() == null ? 0 : principal.getNumeroComensales()) + comensalesOtra);
+        if (principal.getMesero() == null) principal.setMesero(vacia.getMesero());
+        recomputeTotals(principal);
+        Orden saved = ordenRepository.save(principal);
+
+        vacia.setEstado(OrdenEstado.CANCELADA);
+        vacia.setMotivoCancelacion("Unida a la mesa " + principal.getMesa().getNumero() + " (orden #" + principal.getId() + ")");
+        vacia.setCancelledAt(LocalDateTime.now());
+        vacia.setCancelledBy(actor);
+        vacia.setClosedAt(LocalDateTime.now());
+        vacia.setSubtotal(BigDecimal.ZERO);
+        vacia.setTotal(BigDecimal.ZERO);
+        ordenRepository.save(vacia);
+        auditoriaService.log(actor, "UNIR_MESA", "Orden", saved.getId(), "Orden #" + otraId + " (mesa " + mesasOtra + ")",
+                "Orden #" + saved.getId(), "Productos y comensales pasados a esta orden");
+        return saved;
+    }
+
+    /** Separa una mesa que se había unido a la orden: queda libre (los productos se quedan en la orden). */
+    @Transactional
+    public Orden separarMesa(Long ordenId, Long mesaId, User actor) {
+        Orden orden = findById(ordenId, actor);
+        ensureModificable(orden);
+        Mesa mesa = mesaRepository.findById(mesaId == null ? -1L : mesaId)
+                .filter(m -> m.getOrdenActiva() != null && m.getOrdenActiva().getId().equals(orden.getId()))
+                .orElseThrow(() -> new IllegalArgumentException("Esa mesa no está unida a esta orden"));
+        if (orden.getMesa() != null && orden.getMesa().getId().equals(mesa.getId())) {
+            throw new IllegalStateException("La mesa principal no se separa; usa \"Mover de mesa\"");
+        }
         mesa.setOrdenActiva(null);
+        mesa.setEstado(MesaEstado.DISPONIBLE);
         mesaRepository.save(mesa);
+        auditoriaService.log(actor, "SEPARAR_MESA", "Orden", orden.getId(), "Mesa " + mesa.getNumero(), null, null);
+        return orden;
     }
 
     private void ensureModificable(Orden orden) {

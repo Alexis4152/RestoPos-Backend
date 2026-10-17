@@ -28,6 +28,10 @@ public class TiendaService {
     private final UserRepository userRepository;
     private final RoleService roleService;
     private final TenantScope tenantScope;
+    private final com.nexora.restopos.repository.MesaRepository mesaRepository;
+    private final com.nexora.restopos.repository.OrdenRepository ordenRepository;
+    private final com.nexora.restopos.repository.PagoRepository pagoRepository;
+    private final com.nexora.restopos.repository.CashCutRepository cashCutRepository;
 
     /**
      * Lista las tiendas visibles para el actor: un SUPERVISOR solo ve las que tiene a su
@@ -38,6 +42,27 @@ public class TiendaService {
      * @param supervisorId filtro opcional por supervisor a cargo (solo tiene efecto para SUPER_ADMIN)
      * @return tiendas dentro del alcance del actor, ordenadas por nombre
      */
+    /**
+     * Resumen de cada tienda activa al alcance del actor (las suyas si es supervisor, todas
+     * si es super admin): mesas ocupadas, pedidos web por aceptar, ventas cobradas hoy y si
+     * hay algún corte de caja abierto.
+     */
+    public List<com.nexora.restopos.dto.TiendaResumen> resumen(User actor) {
+        java.time.LocalDateTime inicioDia = java.time.LocalDate.now().atStartOfDay();
+        java.time.LocalDateTime ahora = java.time.LocalDateTime.now();
+        return findAll(actor, null).stream()
+                .filter(t -> Boolean.TRUE.equals(t.getIsActive()))
+                .map(t -> {
+                    List<com.nexora.restopos.model.Mesa> mesas = mesaRepository.findAllForTienda(t.getId());
+                    int ocupadas = (int) mesas.stream().filter(m -> m.getOrdenActiva() != null).count();
+                    return new com.nexora.restopos.dto.TiendaResumen(t.getId(), ocupadas, mesas.size(),
+                            ordenRepository.findPedidosWebPorAceptar(t.getId()).size(),
+                            pagoRepository.totalBetween(inicioDia, ahora, t.getId()),
+                            cashCutRepository.existsByTiendaIdAndStatus(t.getId(), com.nexora.restopos.model.CashCutStatus.OPEN));
+                })
+                .toList();
+    }
+
     public List<Tienda> findAll(User actor, Long supervisorId) {
         if (tenantScope.isSupervisor(actor)) {
             return tiendaRepository.findBySupervisorIdOrderByNameAsc(actor.getId());

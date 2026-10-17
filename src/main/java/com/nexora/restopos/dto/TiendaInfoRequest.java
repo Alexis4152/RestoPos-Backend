@@ -49,4 +49,7 @@ public class TiendaInfoRequest {
     // Opcional: cargo por envío a domicilio de las órdenes para llevar (null = no se cobra).
     @PositiveOrZero(message = "El costo de envío no puede ser negativo")
     private BigDecimal costoEnvioDomicilio;
+
+    // Conteo ciego al cerrar corte (Tienda.blindCashCount). null = apagado.
+    private Boolean blindCashCount;
 }

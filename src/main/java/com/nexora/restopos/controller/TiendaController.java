@@ -63,6 +63,12 @@ public class TiendaController {
      *
      * @param id identificador de la tienda
      */
+    /** Resumen en vivo de cada tienda al alcance del actor (pantalla de elegir tienda). */
+    @GetMapping("/resumen")
+    public ResponseEntity<ApiResponse<List<com.nexora.restopos.dto.TiendaResumen>>> resumen(@AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(tiendaService.resumen(actor), null));
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<Tienda>> get(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(tiendaService.findById(id), null));

@@ -47,6 +47,18 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(ApiResponse.error(ex.getMessage()));
     }
 
+    // Antes que IllegalStateException (es subclase): el frontend necesita distinguirla para
+    // pedir que se vuelva a escribir el monto, así que viaja con data.largeDifference.
+    @ExceptionHandler(LargeCashDifferenceException.class)
+    public ResponseEntity<ApiResponse<Map<String, String>>> handleLargeCashDifference(LargeCashDifferenceException ex) {
+        return ResponseEntity.badRequest().body(
+                ApiResponse.<Map<String, String>>builder()
+                        .success(false)
+                        .message(ex.getMessage())
+                        .data(Map.of("largeDifference", "true"))
+                        .build());
+    }
+
     @ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<ApiResponse<Void>> handleIllegalState(IllegalStateException ex) {
         return ResponseEntity.badRequest().body(ApiResponse.error(ex.getMessage()));

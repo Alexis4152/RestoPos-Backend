@@ -153,6 +153,34 @@ public class OrdenController {
         return ResponseEntity.ok(ApiResponse.ok(null, "Producto cancelado"));
     }
 
+    /** Avisos informativos para la campana: reportes de clientes con problema y entregas a domicilio recientes. */
+    @GetMapping("/avisos")
+    public ResponseEntity<ApiResponse<java.util.Map<String, List<Orden>>>> avisos(@AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(ordenService.avisosRecientes(actor)));
+    }
+
+    /** Une otra mesa a esta orden (libre, o con su propia orden que se fusiona). Body: {"mesaId": 12}. */
+    @PostMapping("/{id}/unir-mesa")
+    public ResponseEntity<ApiResponse<Orden>> unirMesa(@PathVariable Long id, @RequestBody java.util.Map<String, Long> body,
+                                                       @AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(ordenService.unirMesa(id, body == null ? null : body.get("mesaId"), actor), "Mesas unidas"));
+    }
+
+    /** Separa (libera) una mesa que se había unido a esta orden. Body: {"mesaId": 12}. */
+    @PostMapping("/{id}/separar-mesa")
+    public ResponseEntity<ApiResponse<Orden>> separarMesa(@PathVariable Long id, @RequestBody java.util.Map<String, Long> body,
+                                                          @AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(ordenService.separarMesa(id, body == null ? null : body.get("mesaId"), actor), "Mesa separada"));
+    }
+
+    /** Mueve la orden a otra mesa libre (el cliente se cambió de lugar). Body: {"mesaId": 12}. */
+    @PostMapping("/{id}/mover-mesa")
+    public ResponseEntity<ApiResponse<Orden>> moverMesa(@PathVariable Long id, @RequestBody java.util.Map<String, Long> body,
+                                                        @AuthenticationPrincipal User actor) {
+        Orden o = ordenService.moverMesa(id, body == null ? null : body.get("mesaId"), actor);
+        return ResponseEntity.ok(ApiResponse.ok(o, "Orden movida a la mesa " + o.getMesa().getNumero()));
+    }
+
     /** Liga la orden a un cliente registrado (por correo o teléfono) para que la vea y la califique en "Mis pedidos". */
     @PostMapping("/{id}/cliente")
     public ResponseEntity<ApiResponse<Orden>> vincularCliente(@PathVariable Long id, @Valid @RequestBody OpinionDtos.VincularCliente req,

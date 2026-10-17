@@ -67,35 +67,61 @@ public class CashCutReportExcelService {
         }
     }
 
+    /**
+     * Construye la hoja "Resumen": una fila por corte con sus montos clave, más la fila
+     * de totales y la de utilidad (ventas menos gastos) al final.
+     *
+     * @param sheet hoja de Excel a llenar
+     * @param header estilo de encabezado
+     * @param bold estilo de texto en negritas (etiquetas y totales)
+     * @param money estilo de formato de moneda
+     * @param tienda tienda del reporte, para el título
+     * @param cuts cortes cerrados a listar
+     */
     private void buildResumen(Sheet sheet, CellStyle header, CellStyle bold, CellStyle money,
                                Tienda tienda, List<CashCut> cuts) {
         int r = 0;
         row(sheet, r++, bold, "TIENDA", tienda.getName());
         r++;
-        header(sheet, r++, header, "CAJERO", "APERTURA", "CIERRE", "FONDO INICIAL", "TOTAL VENTAS", "GASTOS", "FONDO FINAL");
+        // ENTRADAS/RETIROS/REEMBOLSOS son movimientos de efectivo (CashMovement): mueven la
+        // caja pero no son ventas ni gastos — solo GASTOS baja la utilidad. EFECTIVO
+        // ESPERADO es closingAmount; CONTADO/DIFERENCIA, el arqueo (vacío si nadie contó).
+        header(sheet, r++, header, "CAJA", "CAJERO", "APERTURA", "CIERRE", "FONDO INICIAL", "TOTAL VENTAS", "VENTAS EFECTIVO",
+                "ENTRADAS", "GASTOS", "RETIROS", "REEMBOLSOS", "PRÉSTAMOS A OTRAS CAJAS", "EFECTIVO ESPERADO", "CONTADO", "DIFERENCIA");
 
-        BigDecimal totalVentas = BigDecimal.ZERO, totalGastos = BigDecimal.ZERO, totalFondoInicial = BigDecimal.ZERO;
+        BigDecimal totalVentas = BigDecimal.ZERO, totalGastos = BigDecimal.ZERO, totalRetiros = BigDecimal.ZERO;
         for (CashCut cut : cuts) {
             Row row = sheet.createRow(r++);
-            row.createCell(0).setCellValue(cut.getUser().getName());
-            row.createCell(1).setCellValue(cut.getOpenedAt() != null ? cut.getOpenedAt().format(FMT) : "—");
-            row.createCell(2).setCellValue(cut.getClosedAt() != null ? cut.getClosedAt().format(FMT) : "—");
-            moneyCell(row, 3, money, cut.getOpeningAmount());
-            moneyCell(row, 4, money, cut.getTotalSales());
-            moneyCell(row, 5, money, cut.getExpenses());
-            moneyCell(row, 6, money, cut.getClosingAmount());
+            row.createCell(0).setCellValue(cut.getCashRegister() != null ? cut.getCashRegister().getName() : "—");
+            row.createCell(1).setCellValue(cut.getUser().getName());
+            row.createCell(2).setCellValue(cut.getOpenedAt() != null ? cut.getOpenedAt().format(FMT) : "—");
+            row.createCell(3).setCellValue(cut.getClosedAt() != null ? cut.getClosedAt().format(FMT) : "—");
+            moneyCell(row, 4, money, cut.getOpeningAmount());
+            moneyCell(row, 5, money, cut.getTotalSales());
+            moneyCell(row, 6, money, cut.getCashSales());
+            moneyCell(row, 7, money, cut.getEntriesTotal());
+            moneyCell(row, 8, money, cut.getExpenses());
+            moneyCell(row, 9, money, cut.getWithdrawalsTotal());
+            moneyCell(row, 10, money, cut.getReimbursementsTotal());
+            moneyCell(row, 11, money, cut.getLoansOutTotal());
+            moneyCell(row, 12, money, cut.getClosingAmount());
+            if (cut.getCountedAmount() != null) {
+                moneyCell(row, 13, money, cut.getCountedAmount());
+                moneyCell(row, 14, money, cut.getCashDifference());
+            } else {
+                row.createCell(13).setCellValue("No contado");
+            }
             totalVentas = totalVentas.add(nz(cut.getTotalSales()));
             totalGastos = totalGastos.add(nz(cut.getExpenses()));
-            totalFondoInicial = totalFondoInicial.add(nz(cut.getOpeningAmount()));
+            totalRetiros = totalRetiros.add(nz(cut.getWithdrawalsTotal()));
         }
 
         Row totalRow = sheet.createRow(r++);
         totalRow.createCell(0).setCellValue("TOTAL");
         cellStyle(totalRow, 0, bold);
-        moneyCell(totalRow, 3, money, totalFondoInicial);
-        moneyCell(totalRow, 4, money, totalVentas);
-        moneyCell(totalRow, 5, money, totalGastos);
-        moneyCell(totalRow, 6, money, totalFondoInicial.add(totalVentas).subtract(totalGastos));
+        moneyCell(totalRow, 5, money, totalVentas);
+        moneyCell(totalRow, 8, money, totalGastos);
+        moneyCell(totalRow, 9, money, totalRetiros);
 
         r++;
         Row utilidadRow = sheet.createRow(r);
@@ -103,7 +129,7 @@ public class CashCutReportExcelService {
         cellStyle(utilidadRow, 0, bold);
         moneyCell(utilidadRow, 1, money, totalVentas.subtract(totalGastos));
 
-        autosize(sheet, 7);
+        autosize(sheet, 15);
     }
 
     private void buildVentas(Sheet sheet, CellStyle header, CellStyle bold, CellStyle money,

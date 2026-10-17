@@ -75,6 +75,7 @@ public class TiendaInfoService {
         checkAccess(tiendaId, actor);
         Tienda tienda = findTienda(tiendaId);
         tienda.setName(req.getName());
+        tienda.setBlindCashCount(Boolean.TRUE.equals(req.getBlindCashCount()));
         tienda.setUpdatedBy(actor);
         tiendaRepository.save(tienda);
 

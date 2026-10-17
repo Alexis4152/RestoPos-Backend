@@ -29,4 +29,10 @@ public interface OrdenDetalleRepository extends JpaRepository<OrdenDetalle, Long
                                         @Param("to") LocalDateTime to,
                                         @Param("limit") int limit,
                                         @Param("tiendaId") Long tiendaId);
+
+    /** Pasa todos los productos de una orden a otra (unir mesas). */
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query(value = "UPDATE orden_detalles SET orden_id = :destino WHERE orden_id = :origen", nativeQuery = true)
+    int moverAOrden(@org.springframework.data.repository.query.Param("origen") Long origen,
+                    @org.springframework.data.repository.query.Param("destino") Long destino);
 }

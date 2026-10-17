@@ -130,4 +130,14 @@ public interface OrdenRepository extends JpaRepository<Orden, Long> {
            "AND o.estado <> com.nexora.restopos.model.OrdenEstado.CANCELADA " +
            "ORDER BY o.openedAt ASC")
     List<Orden> findPedidosWebPorAceptar(@Param("tiendaId") Long tiendaId);
+
+    /** Pedidos con reporte del cliente "llegó mal" / "me faltó algo" desde {@code desde} (centro de notificaciones). */
+    @Query("SELECT o FROM Orden o WHERE (:tiendaId IS NULL OR o.tienda.id = :tiendaId) AND o.reporteTipo IN ('MAL', 'FALTANTE') " +
+           "AND o.reporteAt >= :desde ORDER BY o.reporteAt DESC")
+    List<Orden> findReportesProblemaDesde(@Param("tiendaId") Long tiendaId, @Param("desde") java.time.LocalDateTime desde);
+
+    /** Envíos a domicilio entregados desde {@code desde} (centro de notificaciones). */
+    @Query("SELECT o FROM Orden o WHERE (:tiendaId IS NULL OR o.tienda.id = :tiendaId) AND o.entregadaAt >= :desde " +
+           "ORDER BY o.entregadaAt DESC")
+    List<Orden> findEntregadosDesde(@Param("tiendaId") Long tiendaId, @Param("desde") java.time.LocalDateTime desde);
 }

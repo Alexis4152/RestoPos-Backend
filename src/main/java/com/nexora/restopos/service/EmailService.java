@@ -74,6 +74,33 @@ public class EmailService {
     }
 
     /**
+     * Envía el reporte de fin de día de UNA caja (un correo, un Excel con sus cortes del día).
+     *
+     * @param registerName nombre de la caja, para el asunto y el texto del correo
+     */
+    @Async
+    public void sendCashRegisterDayReportEmail(Tienda tienda, String registerName, int cutCount, byte[] excelBytes, String toEmail) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+            helper.setTo(toEmail);
+            helper.setSubject("Corte de fin de día — " + registerName + " · " + tienda.getName());
+            helper.setText(
+                    "Se hizo el corte de fin de día de " + registerName + " en " + tienda.getName() + ".\n" +
+                    "Incluye " + cutCount + " corte(s) del día (traspasos y corte final).\n\n" +
+                    "Adjuntamos el reporte detallado en Excel."
+            );
+            String safeName = registerName.replaceAll("[^A-Za-z0-9_-]+", "-");
+            helper.addAttachment("fin-de-dia-" + safeName + "-" + java.time.LocalDate.now() + ".xlsx",
+                    new org.springframework.core.io.ByteArrayResource(excelBytes));
+            mailSender.send(message);
+            log.info("Fin de día de {} / {} ({} corte(s)) enviado a {}", tienda.getName(), registerName, cutCount, toEmail);
+        } catch (MessagingException | RuntimeException e) {
+            log.error("No se pudo enviar el fin de día de {} / {} a {}: {}", tienda.getName(), registerName, toEmail, e.getMessage());
+        }
+    }
+
+    /**
      * Envía por correo la contraseña temporal de un usuario recién dado de alta (o al que
      * se le reseteó la contraseña), junto con el aviso de que se le va a pedir cambiarla al
      * iniciar sesión (ver {@link User#getMustChangePassword()}).

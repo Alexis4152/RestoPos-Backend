@@ -47,6 +47,10 @@ public class Role {
     private Tienda tienda;
 
     /** Secciones de la app ({@link AppSection}) a las que este rol da acceso. */
+    // FetchMode.SELECT: se carga con su propia consulta, nunca con JOIN. Con JOIN, una entidad
+    // que referencia VARIOS usuarios (p. ej. un corte de caja: cajero, quién cerró, quién
+    // contó, quién resolvió...) multiplica las filas por las secciones de cada rol.
+    @org.hibernate.annotations.Fetch(org.hibernate.annotations.FetchMode.SELECT)
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "role_sections", joinColumns = @JoinColumn(name = "role_id"))
     @Enumerated(EnumType.STRING)

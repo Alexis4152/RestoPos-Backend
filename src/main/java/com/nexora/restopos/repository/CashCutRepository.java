@@ -2,9 +2,11 @@ package com.nexora.restopos.repository;
 
 import com.nexora.restopos.model.CashCutStatus;
 import com.nexora.restopos.model.CashCut;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -62,10 +64,59 @@ public interface CashCutRepository extends JpaRepository<CashCut, Long> {
            "(:tiendaId IS NULL OR c.tienda.id = :tiendaId) " +
            "AND c.openedAt BETWEEN :from AND :to " +
            "AND (:status IS NULL OR c.status = :status) " +
+           "AND (:userId IS NULL OR c.user.id = :userId) " +
+           "AND (:arqueoStatus IS NULL OR c.arqueoStatus = :arqueoStatus) " +
            "ORDER BY c.openedAt DESC")
     Page<CashCut> search(@Param("tiendaId") Long tiendaId,
                           @Param("from") LocalDateTime from,
                           @Param("to") LocalDateTime to,
                           @Param("status") CashCutStatus status,
+                          @Param("userId") Long userId,
+                          @Param("arqueoStatus") com.nexora.restopos.model.HandoverStatus arqueoStatus,
                           Pageable pageable);
+
+    @Query("SELECT COUNT(c) FROM CashCut c WHERE (:tiendaId IS NULL OR c.tienda.id = :tiendaId) " +
+           "AND c.arqueoStatus = com.nexora.restopos.model.HandoverStatus.DIFFERENCE")
+    long countUnresolvedArqueos(@Param("tiendaId") Long tiendaId);
+
+    /**
+     * Cajeros distintos que tienen al menos un corte de caja en la tienda dada — para
+     * poblar el filtro "Cajero" del historial ({@link #search}), sin depender de la
+     * sección {@code USERS} (que un ADMIN podría no tener habilitada) como haría
+     * {@code UserController}. {@code tiendaId} nulo indica SUPER_ADMIN viendo todas las
+     * tiendas (no se filtra por tienda).
+     */
+    // Fin de día: cortes de una caja cerrados después de su último fin de día.
+    @Query("SELECT c FROM CashCut c WHERE c.cashRegister.id = :registerId " +
+           "AND c.status = com.nexora.restopos.model.CashCutStatus.CLOSED AND c.closedAt > :from ORDER BY c.closedAt ASC")
+    List<CashCut> findClosedByRegisterSince(@Param("registerId") Long registerId, @Param("from") LocalDateTime from);
+
+    // Cortes sin caja (anteriores a las cajas) cerrados en un rango: los reporta el job por tienda.
+    List<CashCut> findByCashRegisterIsNullAndStatusAndClosedAtBetween(CashCutStatus status, LocalDateTime from, LocalDateTime to);
+
+    // la caja solo puede tener un corte abierto a la vez
+    Optional<CashCut> findFirstByCashRegisterIdAndStatus(Long cashRegisterId, CashCutStatus status);
+
+    /** Bloqueo pesimista para que dos salidas simultáneas no saquen más efectivo del que hay. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT c FROM CashCut c WHERE c.id = :id")
+    Optional<CashCut> findByIdForUpdate(@Param("id") Long id);
+
+    // "Últimas entregas de caja": cada corte que recibió una caja de un turno anterior.
+    @Query("SELECT c FROM CashCut c WHERE (:tiendaId IS NULL OR c.tienda.id = :tiendaId) " +
+           "AND c.cashRegister IS NOT NULL AND c.expectedOpeningAmount IS NOT NULL " +
+           "ORDER BY c.openedAt DESC")
+    Page<CashCut> findHandovers(@Param("tiendaId") Long tiendaId, Pageable pageable);
+
+    @Query("SELECT COUNT(c) FROM CashCut c WHERE (:tiendaId IS NULL OR c.tienda.id = :tiendaId) " +
+           "AND c.handoverStatus = com.nexora.restopos.model.HandoverStatus.DIFFERENCE")
+    long countUnresolvedHandovers(@Param("tiendaId") Long tiendaId);
+
+    @Query("SELECT DISTINCT c.user.id, c.user.name FROM CashCut c " +
+           "WHERE (:tiendaId IS NULL OR c.tienda.id = :tiendaId) " +
+           "ORDER BY c.user.name ASC")
+    List<Object[]> findDistinctCashiers(@Param("tiendaId") Long tiendaId);
+
+    /** ¿La tienda tiene algún corte abierto ahora? (resumen de la pantalla de tiendas). */
+    boolean existsByTiendaIdAndStatus(Long tiendaId, CashCutStatus status);
 }

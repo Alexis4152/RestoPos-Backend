@@ -60,4 +60,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
     /** Lista los usuarios activos con rol ADMIN de una tienda; usado para notificarles por correo cuando el job autocierra un corte. */
     @Query("SELECT u FROM User u WHERE u.tienda.id = :tiendaId AND u.role.name = 'ADMIN' AND u.isActive = true")
     List<User> findAdminsByTiendaId(@Param("tiendaId") Long tiendaId);
+
+    // personal activo de una tienda — para los selects de "¿quién puso/retiró el dinero?" en cajas
+    List<User> findByTiendaIdAndIsActiveTrueOrderByNameAsc(Long tiendaId);
 }

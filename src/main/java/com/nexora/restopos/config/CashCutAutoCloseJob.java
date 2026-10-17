@@ -5,7 +5,7 @@ import com.nexora.restopos.model.CashCutSchedule;
 import com.nexora.restopos.model.CashCutStatus;
 import com.nexora.restopos.repository.CashCutRepository;
 import com.nexora.restopos.repository.CashCutScheduleRepository;
-import com.nexora.restopos.service.CashCutReportNotifier;
+import com.nexora.restopos.service.CashDayCloseService;
 import com.nexora.restopos.service.CashCutService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -40,7 +40,7 @@ public class CashCutAutoCloseJob {
     private final CashCutScheduleRepository scheduleRepository;
     private final CashCutRepository cashCutRepository;
     private final CashCutService cashCutService;
-    private final CashCutReportNotifier reportNotifier;
+    private final CashDayCloseService dayCloseService;
 
     // en memoria: si la app se reinicia justo en el minuto exacto, en el peor caso
     // corre dos veces ese día — aceptable, cerrar un corte ya cerrado simplemente no hace nada.
@@ -65,7 +65,13 @@ public class CashCutAutoCloseJob {
         lastRunDate = now.toLocalDate();
 
         closeAllOpenCuts();
-        sendDailyReport();
+        // Reporta las cajas con cortes sin reportar (las que no hicieron su corte de fin de
+        // día) y los cortes sin caja, y vuelve a abrir todas las cajas para el día siguiente.
+        try {
+            dayCloseService.runScheduledDayEnd();
+        } catch (RuntimeException e) {
+            log.error("Falló el fin de día programado: {}", e.getMessage());
+        }
     }
 
     /**
@@ -87,16 +93,4 @@ public class CashCutAutoCloseJob {
         }
     }
 
-    /**
-     * Busca todos los cortes con estado {@code CLOSED} abiertos en el día en curso (manuales
-     * o auto-cerrados) y delega a {@link CashCutReportNotifier} el envío del reporte
-     * consolidado, agrupado por tienda.
-     */
-    private void sendDailyReport() {
-        LocalDateTime startOfDay = LocalDate.now().atStartOfDay();
-        LocalDateTime endOfDay = startOfDay.plusDays(1);
-        List<CashCut> closedToday = cashCutRepository.findAllByStatusAndOpenedAtBetween(
-                CashCutStatus.CLOSED, startOfDay, endOfDay);
-        reportNotifier.notify(closedToday);
-    }
 }
