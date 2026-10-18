@@ -40,6 +40,7 @@ public class ProductService {
     private final InventoryMovementRepository movementRepository;
     private final TiendaRepository tiendaRepository;
     private final TenantScope tenantScope;
+    private final AuditoriaService auditoriaService;
 
     /**
      * Búsqueda paginada de productos activos, con filtros combinables.
@@ -241,6 +242,30 @@ public class ProductService {
         p.setCategory(cat);
         p.setUpdatedBy(actor);
         return productRepository.save(p);
+    }
+
+    /**
+     * Marca un platillo como agotado ("ya no hay para hacerlo") o de nuevo disponible, sin
+     * tocar nada más del producto. Lo puede hacer el mesero desde la orden (no solo el admin):
+     * mientras esté agotado no se puede agregar a órdenes ni pedir en la página web.
+     *
+     * @param id id del producto; debe ser de la tienda del actor
+     * @param disponible false = agotado, true = ya hay
+     * @param actor usuario que lo cambia (queda en la auditoría)
+     * @return el producto actualizado
+     */
+    @Transactional
+    public Product cambiarDisponible(Long id, boolean disponible, User actor) {
+        Product p = findById(id, actor);
+        if (!Boolean.TRUE.equals(p.getIsActive())) throw new IllegalArgumentException("Producto no encontrado");
+        boolean antes = !Boolean.FALSE.equals(p.getDisponible());
+        if (antes == disponible) return p;
+        p.setDisponible(disponible);
+        p.setUpdatedBy(actor);
+        Product saved = productRepository.save(p);
+        auditoriaService.log(actor, disponible ? "PRODUCTO_DISPONIBLE" : "PRODUCTO_AGOTADO", "Product", p.getId(),
+                antes ? "Disponible" : "Agotado", disponible ? "Disponible" : "Agotado", p.getName());
+        return saved;
     }
 
     /**

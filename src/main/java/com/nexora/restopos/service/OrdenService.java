@@ -144,6 +144,19 @@ public class OrdenService {
     // ── Pedidos de la página web pública ──────────────────────────────────────────────
 
     private static final Set<String> TIPOS_ENTREGA = Set.of("RECOGER", "DOMICILIO");
+    /** Tipos de una orden sin mesa capturada en caja (ver {@link #abrir}). */
+    private static final Set<String> TIPOS_POS = Set.of("PARA_LLEVAR", "COMER_AQUI", "RECOGER", "DOMICILIO");
+
+    /** Texto corto del tipo de una orden sin mesa (ticket, cocina): "Para llevar", "Comer aqui"... */
+    public static String etiquetaTipoEntrega(String tipo) {
+        if (tipo == null) return "Para llevar";
+        return switch (tipo) {
+            case "COMER_AQUI" -> "Comer aqui";
+            case "RECOGER" -> "Para recoger";
+            case "DOMICILIO" -> "A domicilio";
+            default -> "Para llevar";
+        };
+    }
     private static final Set<String> METODOS_PAGO = Set.of("EFECTIVO", "TARJETA", "TRANSFERENCIA");
 
     /**
@@ -525,14 +538,29 @@ public class OrdenService {
             throw new IllegalStateException("Elige una tienda para poder abrir una orden");
         }
 
-        // Para llevar: nombre y teléfono del cliente obligatorios (la dirección sigue opcional).
+        // Sin mesa, los datos obligatorios dependen del tipo:
+        //   PARA_LLEVAR / COMER_AQUI (el cliente está en caja) → nombre;
+        //   RECOGER (viene por él) → nombre y teléfono;
+        //   DOMICILIO → nombre, teléfono y dirección.
         String clienteNombre = req.getClienteNombre() != null ? req.getClienteNombre().trim() : "";
         String clienteTelefono = req.getClienteTelefono() != null ? req.getClienteTelefono().trim() : "";
-        boolean domicilio = mesa == null && Boolean.TRUE.equals(req.getDomicilio());
+        String direccion = req.getDireccion() != null ? req.getDireccion().trim() : "";
+        String tipo = null;
+        if (mesa == null) {
+            tipo = req.getTipoEntrega() != null && !req.getTipoEntrega().isBlank()
+                    ? req.getTipoEntrega().trim().toUpperCase()
+                    // Clientes viejos que solo mandan "domicilio": se comportan como antes.
+                    : (Boolean.TRUE.equals(req.getDomicilio()) ? "DOMICILIO" : "RECOGER");
+            if (!TIPOS_POS.contains(tipo)) throw new IllegalArgumentException("Tipo de pedido no válido");
+        }
+        boolean domicilio = "DOMICILIO".equals(tipo);
         BigDecimal costoEnvio = null;
         if (mesa == null) {
             if (clienteNombre.isEmpty()) throw new IllegalArgumentException("El nombre del cliente es obligatorio");
-            if (clienteTelefono.isEmpty()) throw new IllegalArgumentException("El teléfono del cliente es obligatorio");
+            if ((domicilio || "RECOGER".equals(tipo)) && clienteTelefono.isEmpty()) {
+                throw new IllegalArgumentException("El teléfono del cliente es obligatorio");
+            }
+            if (domicilio && direccion.isEmpty()) throw new IllegalArgumentException("La dirección de entrega es obligatoria");
             if (domicilio) {
                 costoEnvio = costoEnvioDomicilio(tiendaOrden);
                 if (costoEnvio == null) {
@@ -548,11 +576,12 @@ public class OrdenService {
         orden.setNotas(req.getNotas());
         // Solo tiene sentido sin mesa (para llevar) — una orden de mesa no se entrega a
         // ninguna dirección, así que se ignora si llega junto con un mesaId.
-        orden.setDireccion(mesa == null && req.getDireccion() != null && !req.getDireccion().isBlank() ? req.getDireccion().trim() : null);
+        // La dirección solo se guarda a domicilio (en los demás tipos no se entrega a ningún lado).
+        orden.setDireccion(domicilio ? direccion : null);
         orden.setClienteNombre(mesa == null ? clienteNombre : null);
-        orden.setClienteTelefono(mesa == null ? clienteTelefono : null);
-        // Para llevar con envío: aparece en la pantalla de Entregas para que un repartidor la lleve.
-        orden.setTipoEntrega(mesa == null ? (domicilio ? "DOMICILIO" : "RECOGER") : null);
+        orden.setClienteTelefono(mesa == null && !clienteTelefono.isEmpty() ? clienteTelefono : null);
+        // DOMICILIO: aparece en la pantalla de Entregas para que un repartidor la lleve.
+        orden.setTipoEntrega(tipo);
         orden.setEstado(OrdenEstado.ABIERTA);
         Orden saved = ordenRepository.save(orden);
 
@@ -1014,7 +1043,8 @@ public class OrdenService {
     }
 
     /**
-     * Une otra mesa a la orden de mesa {@code ordenId} (grupo grande o dos mesas que se juntan):
+     * Une otra mesa <b>de la misma zona</b> a la orden de mesa {@code ordenId} (grupo grande o dos
+     * mesas que se juntan):
      * <ul>
      *   <li>mesa libre: queda ocupada por esta misma orden;</li>
      *   <li>mesa con su propia orden: sus productos y comensales pasan a esta orden
@@ -1036,6 +1066,13 @@ public class OrdenService {
                 .orElseThrow(() -> new IllegalArgumentException("Mesa no encontrada"));
         if (mesa.getOrdenActiva() != null && mesa.getOrdenActiva().getId().equals(orden.getId())) {
             throw new IllegalStateException("La mesa " + mesa.getNumero() + " ya está unida a esta orden");
+        }
+        // Solo se juntan mesas de la misma zona (no se une una de Terraza con una de Salón).
+        Long zonaPrincipal = orden.getMesa().getZona() != null ? orden.getMesa().getZona().getId() : null;
+        Long zonaMesa = mesa.getZona() != null ? mesa.getZona().getId() : null;
+        if (!java.util.Objects.equals(zonaPrincipal, zonaMesa)) {
+            throw new IllegalStateException("Solo puedes unir mesas de la misma zona: la mesa " + mesa.getNumero()
+                    + " está en " + (mesa.getZona() != null ? mesa.getZona().getNombre() : "otra zona"));
         }
         MesaEstado estadoPrincipal = orden.getMesa().getEstado() == MesaEstado.PENDIENTE_PAGO ? MesaEstado.PENDIENTE_PAGO : MesaEstado.OCUPADA;
 

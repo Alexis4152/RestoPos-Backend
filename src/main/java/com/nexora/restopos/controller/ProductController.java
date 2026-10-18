@@ -48,8 +48,9 @@ public class ProductController {
      *
      * @param actor usuario autenticado; determina el filtro por tienda
      */
+    // KITCHEN: cocina lo usa para marcar agotados (ver #cambiarDisponible).
     @GetMapping
-    @PreAuthorize("@sectionAccess.checkAny('MENU', 'ORDERS')")
+    @PreAuthorize("@sectionAccess.checkAny('MENU', 'ORDERS', 'KITCHEN')")
     public ResponseEntity<ApiResponse<List<Product>>> list(@AuthenticationPrincipal User actor) {
         return ResponseEntity.ok(ApiResponse.ok(productService.findAll(actor), null));
     }
@@ -205,6 +206,23 @@ public class ProductController {
                                                         @Valid @RequestBody ProductRequest req,
                                                         @AuthenticationPrincipal User actor) {
         return ResponseEntity.ok(ApiResponse.ok(productService.update(id, req, actor), "Producto actualizado"));
+    }
+
+    /**
+     * Marca un platillo como agotado o de nuevo disponible ({@code {"disponible": false|true}}).
+     * A diferencia de editar, no es solo para ADMIN: el mesero (sección {@code ORDERS}) lo
+     * hace desde la orden, y cocina ({@code KITCHEN}) desde su pantalla, cuando ya no hay para
+     * prepararlo.
+     */
+    @PatchMapping("/{id}/disponible")
+    @PreAuthorize("@sectionAccess.checkAny('MENU', 'ORDERS', 'KITCHEN')")
+    public ResponseEntity<ApiResponse<Product>> cambiarDisponible(@PathVariable Long id,
+                                                                  @RequestBody java.util.Map<String, Boolean> body,
+                                                                  @AuthenticationPrincipal User actor) {
+        Boolean disponible = body != null ? body.get("disponible") : null;
+        if (disponible == null) throw new IllegalArgumentException("Indica si el platillo está disponible");
+        Product p = productService.cambiarDisponible(id, disponible, actor);
+        return ResponseEntity.ok(ApiResponse.ok(p, disponible ? "\"" + p.getName() + "\" disponible de nuevo" : "\"" + p.getName() + "\" marcado como agotado"));
     }
 
     // cualquier rol con acceso a Menú o Inventario puede ajustar stock (no solo ADMIN)

@@ -93,6 +93,8 @@ public class Orden {
     @Column(length = 20)
     private String metodoPago;
 
+    // Sin mesa: PARA_LLEVAR / COMER_AQUI / RECOGER / DOMICILIO (los de la web solo RECOGER o
+    // DOMICILIO). Ver OrdenService#abrir y #etiquetaTipoEntrega.
     @Column(length = 20)
     private String tipoEntrega;
 

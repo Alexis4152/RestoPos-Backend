@@ -96,7 +96,8 @@ public class EscPosTicketService {
         if (orden.getMesero() != null) {
             text(buf, "Atendio: " + wrap(orden.getMesero().getName()) + "\n");
         }
-        text(buf, (orden.getMesa() != null ? "Mesa: " + orden.getMesa().getNumero() : "Para llevar") + "\n");
+        text(buf, (orden.getMesa() != null ? "Mesa: " + orden.getMesa().getNumero()
+                : OrdenService.etiquetaTipoEntrega(orden.getTipoEntrega())) + "\n");
         if (cuenta.getComensal() != null) {
             String nombre = cuenta.getComensal().getNombre();
             text(buf, "Comensal " + cuenta.getComensal().getNumero() + (nombre != null && !nombre.isBlank() ? " (" + wrap(nombre) + ")" : "") + "\n");
