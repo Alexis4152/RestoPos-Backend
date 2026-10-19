@@ -526,6 +526,7 @@ public class OrdenService {
             if (mesa.getEstado() != MesaEstado.DISPONIBLE && mesa.getEstado() != MesaEstado.RESERVADA) {
                 throw new IllegalStateException("La mesa no está disponible");
             }
+            validarCupo(List.of(mesa), req.getNumeroComensales() != null ? req.getNumeroComensales() : 1, "no caben");
         }
 
         // tiendaForWrite (no actor.getTienda()): para un actor de plataforma (SUPER_ADMIN/
@@ -617,6 +618,9 @@ public class OrdenService {
         // otra vez produciría un "Comensal N" duplicado si quedó un hueco en medio.
         int siguiente = comensalRepository.findByOrdenIdOrderByNumeroAsc(ordenId).stream()
                 .mapToInt(Comensal::getNumero).max().orElse(0) + 1;
+        if (orden.getMesa() != null) {
+            validarCupo(mesasDe(orden), comensalRepository.findByOrdenIdOrderByNumeroAsc(ordenId).size() + 1, "ya serían");
+        }
         Comensal c = new Comensal();
         c.setOrden(orden);
         c.setNumero(siguiente);
@@ -1012,6 +1016,10 @@ public class OrdenService {
                 || (destino.getEstado() != MesaEstado.DISPONIBLE && destino.getEstado() != MesaEstado.RESERVADA)) {
             throw new IllegalStateException("La mesa " + destino.getNumero() + " no está libre");
         }
+        // Las mesas unidas se quedan con la orden: el cupo es el destino más esas.
+        List<Mesa> nuevoGrupo = new java.util.ArrayList<>(mesasDe(orden).stream().filter(m -> !m.getId().equals(origen.getId())).toList());
+        nuevoGrupo.add(destino);
+        validarCupo(nuevoGrupo, Math.max(1, orden.getComensales().size()), "esta orden tiene");
         destino.setEstado(origen.getEstado() == MesaEstado.PENDIENTE_PAGO ? MesaEstado.PENDIENTE_PAGO : MesaEstado.OCUPADA);
         destino.setOrdenActiva(orden);
         origen.setEstado(MesaEstado.DISPONIBLE);
@@ -1031,6 +1039,36 @@ public class OrdenService {
             mesa.setEstado(MesaEstado.DISPONIBLE);
             mesa.setOrdenActiva(null);
             mesaRepository.save(mesa);
+        }
+    }
+
+    /**
+     * Lugares de un grupo de mesas: la suma de su capacidad (la captura el admin en Mesas).
+     * null = sin límite (alguna mesa no tiene capacidad capturada).
+     */
+    private static Integer lugares(java.util.Collection<Mesa> mesas) {
+        int total = 0;
+        for (Mesa m : mesas) {
+            if (m.getCapacidad() == null || m.getCapacidad() <= 0) return null;
+            total += m.getCapacidad();
+        }
+        return total;
+    }
+
+    private static String nombreMesa(Mesa m) {
+        return m.getNumero().toLowerCase().startsWith("mesa") ? m.getNumero() : "Mesa " + m.getNumero();
+    }
+
+    /**
+     * Límite de personas por mesa: no más de los lugares de sus mesas (para sentar más, se une
+     * otra mesa). Evita teclear de más (ej. 30 en vez de 3). Mesas sin capacidad: sin límite.
+     */
+    private static void validarCupo(java.util.Collection<Mesa> mesas, int personas, String que) {
+        Integer cupo = lugares(mesas);
+        if (cupo != null && personas > cupo) {
+            String donde = mesas.size() == 1 ? nombreMesa(mesas.iterator().next()) + " es para " + cupo + (cupo == 1 ? " persona" : " personas")
+                    : "Esas mesas son para " + cupo + " personas";
+            throw new IllegalStateException(donde + ": " + que + " " + personas + ". Para más personas, une otra mesa.");
         }
     }
 
@@ -1148,6 +1186,8 @@ public class OrdenService {
         if (orden.getMesa() != null && orden.getMesa().getId().equals(mesa.getId())) {
             throw new IllegalStateException("La mesa principal no se separa; usa \"Mover de mesa\"");
         }
+        List<Mesa> quedan = mesasDe(orden).stream().filter(m -> !m.getId().equals(mesa.getId())).toList();
+        validarCupo(quedan, Math.max(1, orden.getComensales().size()), "al separar quedarían");
         mesa.setOrdenActiva(null);
         mesa.setEstado(MesaEstado.DISPONIBLE);
         mesaRepository.save(mesa);

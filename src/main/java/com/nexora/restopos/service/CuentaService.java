@@ -257,6 +257,23 @@ public class CuentaService {
         if (aFacturar.isEmpty()) {
             throw new IllegalStateException("No hay productos pendientes de pago");
         }
+        if (exigirEntregados && Boolean.TRUE.equals(req.getMarcarEntregados())) {
+            // Modo rápido: el mesero confirmó que ya está en la mesa; se marca entregado aquí mismo
+            // (cocina no siempre alcanza a marcarlo). Queda en la auditoría: qué y en qué estado estaba.
+            List<String> marcados = new ArrayList<>();
+            for (PorFacturar pf : aFacturar) {
+                OrdenDetalle i = pf.item();
+                if (Boolean.TRUE.equals(i.getCargoExtra()) || i.getEstado() == OrdenDetalleEstado.ENTREGADO) continue;
+                marcados.add(i.getProductoNombre() + " (" + i.getEstado() + ")");
+                i.setEstado(OrdenDetalleEstado.ENTREGADO);
+                if (i.getEntregadoCocinaAt() == null) i.setEntregadoCocinaAt(java.time.LocalDateTime.now());
+                ordenDetalleRepository.save(i);
+            }
+            if (!marcados.isEmpty()) {
+                auditoriaService.log(actor, "ENTREGAR_AL_COBRAR", "Orden", orden.getId(), null, String.join(", ", marcados),
+                        "Modo rápido: el mesero confirmó la entrega al generar la cuenta");
+            }
+        }
         if (exigirEntregados) {
             // Los cargos (envío) no pasan por cocina; todo lo demás debe estar marcado como entregado.
             List<String> sinEntregar = aFacturar.stream()

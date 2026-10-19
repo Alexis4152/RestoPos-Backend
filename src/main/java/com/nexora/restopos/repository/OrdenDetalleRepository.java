@@ -35,4 +35,15 @@ public interface OrdenDetalleRepository extends JpaRepository<OrdenDetalle, Long
     @org.springframework.data.jpa.repository.Query(value = "UPDATE orden_detalles SET orden_id = :destino WHERE orden_id = :origen", nativeQuery = true)
     int moverAOrden(@org.springframework.data.repository.query.Param("origen") Long origen,
                     @org.springframework.data.repository.query.Param("destino") Long destino);
+
+    /**
+     * Notas escritas en las líneas de un producto desde {@code desde} (sin lo cancelado), con
+     * cuántas veces se repitió cada texto: filas {@code [nota, veces]}. Base de las "notas
+     * rápidas" del modo rápido (ProductService#sugerencias), que además las separa por comas.
+     */
+    @Query(value = "SELECT MIN(TRIM(observaciones)), COUNT(*) FROM orden_detalles " +
+                   "WHERE producto_id = :productoId AND estado <> 'CANCELADO' AND created_at >= :desde " +
+                   "AND observaciones IS NOT NULL AND TRIM(observaciones) <> '' " +
+                   "GROUP BY LOWER(TRIM(observaciones)) ORDER BY COUNT(*) DESC LIMIT 200", nativeQuery = true)
+    List<Object[]> contarNotas(@Param("productoId") Long productoId, @Param("desde") LocalDateTime desde);
 }

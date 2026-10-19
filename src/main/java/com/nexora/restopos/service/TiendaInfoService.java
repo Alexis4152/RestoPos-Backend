@@ -76,6 +76,13 @@ public class TiendaInfoService {
         Tienda tienda = findTienda(tiendaId);
         tienda.setName(req.getName());
         tienda.setBlindCashCount(Boolean.TRUE.equals(req.getBlindCashCount()));
+        if (req.getModoToma() != null) {
+            String modo = req.getModoToma().trim().toUpperCase();
+            if (!modo.equals("RAPIDO") && !modo.equals("DETALLADO")) {
+                throw new IllegalArgumentException("Modo de toma de orden no válido");
+            }
+            tienda.setModoToma(modo);
+        }
         tienda.setUpdatedBy(actor);
         tiendaRepository.save(tienda);
 

@@ -41,6 +41,13 @@ public class ProductService {
     private final TiendaRepository tiendaRepository;
     private final TenantScope tenantScope;
     private final AuditoriaService auditoriaService;
+    private final com.nexora.restopos.repository.OrdenDetalleModificadorRepository ordenDetalleModificadorRepository;
+    private final com.nexora.restopos.repository.OrdenDetalleRepository ordenDetalleRepository;
+
+    // Sugerencias del modo rápido: solo se preselecciona una opción que domina claramente.
+    private static final int SUGERENCIA_DIAS = 90;
+    private static final java.math.BigDecimal SUGERENCIA_MIN_PIEZAS = java.math.BigDecimal.valueOf(5);
+    private static final double SUGERENCIA_MIN_PROPORCION = 0.6;
 
     /**
      * Búsqueda paginada de productos activos, con filtros combinables.
@@ -242,6 +249,73 @@ public class ProductService {
         p.setCategory(cat);
         p.setUpdatedBy(actor);
         return productRepository.save(p);
+    }
+
+    /** Sugerencias del modo rápido para un producto: opciones preseleccionadas y notas frecuentes. */
+    public record Sugerencias(java.util.Map<Long, Long> opciones, List<String> notas) {}
+
+    /**
+     * Opciones sugeridas (ver {@link #opcionesSugeridas}) y hasta 6 notas que se han escrito al
+     * menos 2 veces para este producto en los últimos 90 días ("Sin cebolla", "Poco picante"),
+     * separando las que se escribieron juntas con coma. Las notas nunca se preseleccionan: el
+     * mesero las toca solo si el cliente las pide.
+     */
+    public Sugerencias sugerencias(Long id, User actor) {
+        Product p = findById(id, actor);
+        java.util.Map<String, long[]> conteo = new java.util.LinkedHashMap<>();
+        java.util.Map<String, String> texto = new java.util.HashMap<>();
+        for (Object[] f : ordenDetalleRepository.contarNotas(p.getId(), java.time.LocalDateTime.now().minusDays(SUGERENCIA_DIAS))) {
+            long veces = ((Number) f[1]).longValue();
+            for (String parte : f[0].toString().split("[,;\n]")) {
+                String nota = parte.trim();
+                if (nota.isEmpty() || nota.length() > 40) continue;
+                String clave = nota.toLowerCase();
+                texto.putIfAbsent(clave, Character.toUpperCase(nota.charAt(0)) + nota.substring(1));
+                conteo.computeIfAbsent(clave, k -> new long[1])[0] += veces;
+            }
+        }
+        List<String> notas = conteo.entrySet().stream()
+                .filter(e -> e.getValue()[0] >= 2)
+                .sorted((a, b) -> Long.compare(b.getValue()[0], a.getValue()[0]))
+                .limit(6)
+                .map(e -> texto.get(e.getKey()))
+                .toList();
+        return new Sugerencias(opcionesSugeridas(p), notas);
+    }
+
+    /**
+     * Opción sugerida por grupo para el modo rápido de toma de orden: en cada grupo
+     * OBLIGATORIO de opción única, la opción que más se pidió en los últimos 90 días, solo si
+     * domina (al menos 60 % de las piezas y al menos 5 piezas). Si están parejas, el platillo es
+     * nuevo o la opción ya no existe, ese grupo no lleva sugerencia y el mesero elige. Nunca
+     * sugiere grupos opcionales ni de opción múltiple (extras, notas): eso lo decide el cliente.
+     *
+     * @return mapa {@code grupoId -> opcionId}; vacío si no hay nada que sugerir
+     */
+    private java.util.Map<Long, Long> opcionesSugeridas(Product p) {
+        java.util.Map<Long, Long> out = new java.util.LinkedHashMap<>();
+        List<Object[]> filas = ordenDetalleModificadorRepository.contarOpciones(p.getId(), java.time.LocalDateTime.now().minusDays(SUGERENCIA_DIAS));
+        if (filas.isEmpty()) return out;
+        for (com.nexora.restopos.model.ModificadorGrupo g : p.getModificadorGrupos()) {
+            if (!Boolean.TRUE.equals(g.getIsActive()) || !Boolean.TRUE.equals(g.getObligatorio())
+                    || g.getTipo() != com.nexora.restopos.model.ModificadorGrupoTipo.UNICO) continue;
+            java.util.Map<String, java.math.BigDecimal> porOpcion = new java.util.HashMap<>();
+            java.math.BigDecimal total = java.math.BigDecimal.ZERO;
+            for (Object[] f : filas) {
+                if (f[0] == null || !g.getNombre().equalsIgnoreCase(f[0].toString())) continue;
+                java.math.BigDecimal n = new java.math.BigDecimal(f[2].toString());
+                porOpcion.merge(f[1].toString().toLowerCase(), n, java.math.BigDecimal::add);
+                total = total.add(n);
+            }
+            if (total.compareTo(SUGERENCIA_MIN_PIEZAS) < 0) continue;
+            var top = porOpcion.entrySet().stream().max(java.util.Map.Entry.comparingByValue()).orElse(null);
+            if (top == null || top.getValue().doubleValue() / total.doubleValue() < SUGERENCIA_MIN_PROPORCION) continue;
+            g.getOpciones().stream()
+                    .filter(o -> Boolean.TRUE.equals(o.getIsActive()) && o.getNombre().equalsIgnoreCase(top.getKey()))
+                    .findFirst()
+                    .ifPresent(o -> out.put(g.getId(), o.getId()));
+        }
+        return out;
     }
 
     /**

@@ -209,6 +209,18 @@ public class ProductController {
     }
 
     /**
+     * Sugerencias del modo rápido: {@code opciones} ({@code {grupoId: opcionId}}, la más pedida
+     * de cada grupo obligatorio, solo cuando domina) y {@code notas} frecuentes del platillo.
+     * Ver ProductService#sugerencias.
+     */
+    @GetMapping("/{id}/sugerencias")
+    @PreAuthorize("@sectionAccess.checkAny('ORDERS', 'TAKEAWAY', 'MENU')")
+    public ResponseEntity<ApiResponse<ProductService.Sugerencias>> sugerencias(@PathVariable Long id,
+                                                                            @AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(productService.sugerencias(id, actor), null));
+    }
+
+    /**
      * Marca un platillo como agotado o de nuevo disponible ({@code {"disponible": false|true}}).
      * A diferencia de editar, no es solo para ADMIN: el mesero (sección {@code ORDERS}) lo
      * hace desde la orden, y cocina ({@code KITCHEN}) desde su pantalla, cuando ya no hay para

@@ -52,4 +52,8 @@ public class TiendaInfoRequest {
 
     // Conteo ciego al cerrar corte (Tienda.blindCashCount). null = apagado.
     private Boolean blindCashCount;
+
+    // Modo de toma de orden por default de la tienda (Tienda.modoToma): RAPIDO o DETALLADO.
+    // null = no se cambia.
+    private String modoToma;
 }

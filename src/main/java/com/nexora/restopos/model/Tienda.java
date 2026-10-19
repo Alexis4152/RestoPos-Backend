@@ -86,6 +86,14 @@ public class Tienda {
     @Builder.Default
     private Boolean blindCashCount = false;
 
+    // Cómo toman orden los meseros por default: DETALLADO (plano de mesas, comensal por
+    // producto, primero marcar entregado y luego cuenta) o RAPIDO (mis mesas, menú directo,
+    // opciones sugeridas, entregar y cobrar en un paso). Cada mesero puede cambiarlo en su
+    // dispositivo; esto es solo el valor con el que arranca. Ver "Datos de la tienda".
+    @Column(nullable = false, length = 10, columnDefinition = "varchar(10) default 'DETALLADO'")
+    @Builder.Default
+    private String modoToma = "DETALLADO";
+
     // El supervisor (dueño) recibe el reporte de fin de día de cada caja por default; puede
     // desactivarlo si prefiere que solo les llegue a los destinatarios que configuró (ver
     // CashReportRecipient / CashReportRecipientService).

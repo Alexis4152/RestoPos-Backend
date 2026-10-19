@@ -16,4 +16,9 @@ public class CuentaCreateRequest {
     // requerido si tipo = PERSONALIZADA
     @Valid
     private List<CuentaItemRequest> items;
+    // Modo rápido: el mesero confirma que ya entregó todo, así que lo que se factura se marca
+    // como ENTREGADO al generar la cuenta, sin importar en qué estado lo dejó cocina (no siempre
+    // alcanza a marcarlo). Sin esto (modo detallado) se exige marcarlo antes. Ver
+    // CuentaService#crearInternal.
+    private Boolean marcarEntregados;
 }
