@@ -59,8 +59,8 @@ public class ProductService {
      * @param actor usuario que consulta; acota el resultado a su tienda
      * @return página de productos activos que cumplen los filtros
      */
-    public Page<Product> search(String q, Long categoryId, Boolean lowStock, Pageable pageable, User actor) {
-        return productRepository.searchActive(q, categoryId, lowStock, tenantScope.scopeId(actor), pageable);
+    public Page<Product> search(String q, Long categoryId, Boolean lowStock, boolean soloInventario, Pageable pageable, User actor) {
+        return productRepository.searchActive(q, categoryId, lowStock, soloInventario, tenantScope.scopeId(actor), pageable);
     }
 
     /**
@@ -203,6 +203,9 @@ public class ProductService {
         p.setUnit(req.getUnit() != null ? req.getUnit() : "pieza");
         p.setImageUrl(req.getImageUrl());
         p.setDisponible(req.getDisponible() == null || req.getDisponible());
+        p.setControlaInventario(Boolean.TRUE.equals(req.getControlaInventario()));
+        if (!p.getControlaInventario()) { p.setStock(0); p.setMinStock(0); }
+
         p.setCategory(cat);
         p.setTienda(tienda);
         p.setIsActive(true);
@@ -242,10 +245,13 @@ public class ProductService {
         p.setPrice(req.getPrice());
         // conserva el costo existente si el formulario no lo envía (no lo pisa con null/0)
         if (req.getCost() != null) p.setCost(req.getCost());
-        p.setMinStock(req.getMinStock() != null ? req.getMinStock() : 0);
+        // Igual que el costo: si el formulario no lo manda (ej. Menú), se conserva el mínimo.
+        if (req.getMinStock() != null) p.setMinStock(req.getMinStock());
         p.setUnit(req.getUnit() != null ? req.getUnit() : "pieza");
         // la foto se administra aparte (ProductImageService/{id}/image); no se pisa aquí
         if (req.getDisponible() != null) p.setDisponible(req.getDisponible());
+        // El stock no se toca al apagarlo: si lo vuelven a activar, conserva lo que tenía.
+        if (req.getControlaInventario() != null) p.setControlaInventario(req.getControlaInventario());
         p.setCategory(cat);
         p.setUpdatedBy(actor);
         return productRepository.save(p);
@@ -334,6 +340,7 @@ public class ProductService {
         if (!Boolean.TRUE.equals(p.getIsActive())) throw new IllegalArgumentException("Producto no encontrado");
         boolean antes = !Boolean.FALSE.equals(p.getDisponible());
         if (antes == disponible) return p;
+
         p.setDisponible(disponible);
         p.setUpdatedBy(actor);
         Product saved = productRepository.save(p);
@@ -368,6 +375,9 @@ public class ProductService {
             throw new IllegalStateException("Solo un administrador puede quitar piezas del inventario");
         }
         Product p = findById(id, actor);
+        if (!Boolean.TRUE.equals(p.getControlaInventario())) {
+            throw new IllegalStateException("\"" + p.getName() + "\" no lleva inventario: actívalo en el producto (\"Lleva inventario\") para ajustar su stock");
+        }
         int previous = p.getStock();
         // En long, NO en int: "previous + quantity" con aritmética int normal se desborda en
         // silencio si la suma pasa de Integer.MAX_VALUE (envuelve a un negativo grande), lo

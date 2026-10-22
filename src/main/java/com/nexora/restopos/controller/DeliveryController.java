@@ -47,8 +47,33 @@ public class DeliveryController {
     }
 
     @PostMapping("/{id}/soltar")
-    public ResponseEntity<ApiResponse<Orden>> soltar(@PathVariable Long id, @AuthenticationPrincipal User actor) {
-        return ResponseEntity.ok(ApiResponse.ok(deliveryService.soltar(id, actor), "Pedido liberado"));
+    public ResponseEntity<ApiResponse<Orden>> soltar(@PathVariable Long id,
+                                                     @RequestBody(required = false) com.nexora.restopos.dto.CancelRequest req,
+                                                     @AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(deliveryService.soltar(id, req != null ? req.getMotivo() : null, actor), "Pedido liberado"));
+    }
+
+    /** Historial del repartidor (sus entregas); por default, los últimos 7 días. */
+    @GetMapping("/historial")
+    public ResponseEntity<ApiResponse<List<Orden>>> historial(
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate desde,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate hasta,
+            @AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(deliveryService.historial(actor, desde, hasta)));
+    }
+
+    /** Caja: envíos entregados cuyo dinero todavía trae el repartidor. */
+    @GetMapping("/por-recibir")
+    @PreAuthorize("@sectionAccess.checkAny('TAKEAWAY', 'ORDERS', 'CASH_CUTS')")
+    public ResponseEntity<ApiResponse<List<Orden>>> porRecibir(@AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(deliveryService.porRecibir(actor)));
+    }
+
+    /** Caja: recibe del repartidor el dinero de un envío (se cobra en el corte de quien recibe). */
+    @PostMapping("/{id}/recibir")
+    @PreAuthorize("@sectionAccess.check('CASH_CUTS')") // solo quien cobra (cajero/admin)
+    public ResponseEntity<ApiResponse<Orden>> recibir(@PathVariable Long id, @AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(deliveryService.recibirDinero(id, actor), "Dinero recibido"));
     }
 
     @PostMapping("/{id}/entregar")

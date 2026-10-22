@@ -32,4 +32,12 @@ public interface InventoryMovementRepository extends JpaRepository<InventoryMove
     List<Object[]> findByProductIdAndCreatedAtBetween(@Param("productId") Long productId,
                                                        @Param("from") LocalDateTime from,
                                                        @Param("to") LocalDateTime to);
+
+    /**
+     * Piezas que una línea de orden tiene descontadas en neto (ventas menos devoluciones) —
+     * referencia {@code OD:<id>}, ver InventarioVentaService.
+     */
+    @Query("SELECT COALESCE(SUM(CASE WHEN m.type = com.nexora.restopos.model.MovementType.SALE THEN m.quantity ELSE -m.quantity END), 0) " +
+           "FROM InventoryMovement m WHERE m.reference = :referencia")
+    int netoVendidoPorReferencia(@Param("referencia") String referencia);
 }

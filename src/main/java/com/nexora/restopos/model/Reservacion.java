@@ -99,6 +99,20 @@ public class Reservacion {
     @Column(length = 300)
     private String motivo;
 
+    // El cliente avisó que llegará unos minutos tarde (15/30/45/60); null = a tiempo.
+    private Integer retrasoMinutos;
+
+    // Última vez que el cliente cambió personas/necesidades, avisó retraso u ordenó (se le
+    // destaca al personal).
+    private LocalDateTime modificadaAt;
+
+    // Pedido anticipado desde la página web: espera (sin ir a cocina) hasta que el personal
+    // marca "Llegó"; ahí se abre en la mesa y entra a cocina. Ver OrdenService#preordenReservacion.
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "preorden_id")
+    private Orden preorden;
+
     // WEB (página pública) o PERSONAL (capturada en el punto de venta, p. ej. por teléfono).
     @Column(nullable = false, length = 10)
     @Builder.Default

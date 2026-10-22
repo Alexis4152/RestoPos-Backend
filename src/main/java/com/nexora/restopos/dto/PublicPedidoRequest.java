@@ -34,9 +34,23 @@ public class PublicPedidoRequest {
     @Size(max = 200, message = "La dirección no puede tener más de 200 caracteres")
     private String direccion;
 
+    // Dirección en partes (ver util.Direccion); "direccion" queda para pantallas viejas.
+    @Size(max = 100, message = "La calle no puede tener más de 100 caracteres")
+    private String calle;
+    @Size(max = 70, message = "La colonia no puede tener más de 70 caracteres")
+    private String colonia;
+    @Size(max = 10, message = "El código postal no es válido")
+    private String codigoPostal;
+
     // EFECTIVO, TARJETA o TRANSFERENCIA
     @NotBlank(message = "Elige una forma de pago")
     private String metodoPago;
+
+    // Solo en efectivo: con cuánto paga el cliente (billete), para que el repartidor o la caja
+    // lleve el cambio. null = no lo dijo. Debe cubrir el total (se valida en el service).
+    @jakarta.validation.constraints.DecimalMin(value = "0", message = "El monto no puede ser negativo")
+    @jakarta.validation.constraints.DecimalMax(value = "999999.99", message = "El monto es demasiado grande")
+    private java.math.BigDecimal pagaCon;
 
     @Size(max = 500, message = "Las notas no pueden tener más de 500 caracteres")
     private String notas;

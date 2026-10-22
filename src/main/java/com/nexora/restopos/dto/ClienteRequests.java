@@ -26,9 +26,16 @@ public final class ClienteRequests {
         @Pattern(regexp = TELEFONO_REGEX, message = "El teléfono solo puede tener números, espacios, guiones o +")
         private String telefono;
 
-        @NotBlank(message = "La dirección es obligatoria")
-        @Size(min = 5, max = 200, message = "La dirección debe tener entre 5 y 200 caracteres")
+        @Size(max = 200, message = "La dirección no puede tener más de 200 caracteres")
         private String direccion;
+
+        // Dirección en partes (ver util.Direccion); "direccion" queda para pantallas viejas.
+        @Size(max = 100, message = "La calle no puede tener más de 100 caracteres")
+        private String calle;
+        @Size(max = 70, message = "La colonia no puede tener más de 70 caracteres")
+        private String colonia;
+        @Size(max = 10, message = "El código postal no es válido")
+        private String codigoPostal;
 
         @NotBlank(message = "El correo es obligatorio")
         @Email(message = "El correo no es válido")
@@ -59,9 +66,16 @@ public final class ClienteRequests {
         @Pattern(regexp = TELEFONO_REGEX, message = "El teléfono solo puede tener números, espacios, guiones o +")
         private String telefono;
 
-        @NotBlank(message = "La dirección es obligatoria")
-        @Size(min = 5, max = 200, message = "La dirección debe tener entre 5 y 200 caracteres")
+        @Size(max = 200, message = "La dirección no puede tener más de 200 caracteres")
         private String direccion;
+
+        // Dirección en partes (ver util.Direccion); "direccion" queda para pantallas viejas.
+        @Size(max = 100, message = "La calle no puede tener más de 100 caracteres")
+        private String calle;
+        @Size(max = 70, message = "La colonia no puede tener más de 70 caracteres")
+        private String colonia;
+        @Size(max = 10, message = "El código postal no es válido")
+        private String codigoPostal;
     }
 
     @Data

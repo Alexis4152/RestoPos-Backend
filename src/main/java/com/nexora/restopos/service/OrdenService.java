@@ -62,6 +62,8 @@ public class OrdenService {
     private final TenantScope tenantScope;
     private final AuditoriaService auditoriaService;
     private final ImageStorageService imageStorageService;
+    private final InventarioVentaService inventarioVentaService;
+    private final com.nexora.restopos.repository.EntregaEventoRepository entregaEventoRepository;
 
     public Page<Orden> findAll(LocalDateTime from, LocalDateTime to, OrdenEstado estado, Pageable pageable, User actor) {
         LocalDateTime effFrom = from != null ? from : MIN_DATE;
@@ -211,14 +213,15 @@ public class OrdenService {
             default -> Boolean.TRUE.equals(info.getWebPagoTransferencia());
         };
         if (!pagoPermitido) throw new IllegalArgumentException("Esa forma de pago no está disponible");
-        String direccion = req.getDireccion() != null ? req.getDireccion().trim() : "";
-        if (domicilio && direccion.isEmpty()) throw new IllegalArgumentException("La dirección de entrega es obligatoria");
+        com.nexora.restopos.util.Direccion.Partes dir = domicilio
+                ? com.nexora.restopos.util.Direccion.resolver(req.getCalle(), req.getColonia(), req.getCodigoPostal(), req.getDireccion(), true)
+                : null;
 
         Orden orden = new Orden();
         orden.setTienda(tienda);
         orden.setNumeroComensales(1);
         orden.setNotas(req.getNotas() != null && !req.getNotas().isBlank() ? req.getNotas().trim() : null);
-        orden.setDireccion(domicilio ? direccion : null);
+        ponerDireccion(orden, dir);
         orden.setClienteNombre(req.getClienteNombre().trim());
         orden.setClienteTelefono(req.getClienteTelefono().trim());
         orden.setOrigen("WEB");
@@ -246,7 +249,7 @@ public class OrdenService {
                 throw new IllegalArgumentException("\"" + producto.getName() + "\" no está disponible en este momento");
             }
             String obs = it.getObservaciones() != null && !it.getObservaciones().isBlank() ? it.getObservaciones().trim() : null;
-            crearLinea(saved, producto, null, BigDecimal.valueOf(it.getCantidad()), BigDecimal.ZERO, obs, it.getModificadorOpcionIds());
+            crearLinea(saved, producto, null, BigDecimal.valueOf(it.getCantidad()), BigDecimal.ZERO, obs, it.getModificadorOpcionIds(), null);
         }
 
         if (domicilio) {
@@ -254,7 +257,117 @@ public class OrdenService {
             if (costo != null) agregarCargoEnvio(saved, costo);
         }
         recomputeTotals(saved);
+        // Efectivo: "¿con cuánto pagas?" tiene que cubrir el total (el repartidor lleva el cambio).
+        if ("EFECTIVO".equals(metodoPago) && req.getPagaCon() != null && req.getPagaCon().signum() > 0) {
+            if (req.getPagaCon().compareTo(saved.getTotal()) < 0) {
+                throw new IllegalArgumentException(String.format("El monto con el que pagas no cubre el total ($%,.2f)", saved.getTotal()));
+            }
+            saved.setPagaCon(req.getPagaCon().setScale(2, java.math.RoundingMode.HALF_UP));
+        }
         return ordenRepository.save(saved);
+    }
+
+    /**
+     * Pedido anticipado de una reservación (página web): nace "en espera" (pendienteAceptar,
+     * tipo RESERVACION) — no sale en cocina, ni en pedidos por aceptar, ni en Para llevar —
+     * hasta que el personal marca que llegaron (ver {@link #activarPreorden}). Si ya hay uno en
+     * espera, lo nuevo se agrega a ese mismo. Se paga en el restaurante, como cualquier mesa.
+     */
+    @Transactional
+    public Orden preordenReservacion(Reservacion r, List<PublicPedidoRequest.Item> items, String notas) {
+        Orden orden = r.getPreorden();
+        if (orden == null || orden.getEstado() == OrdenEstado.CANCELADA) {
+            orden = new Orden();
+            orden.setTienda(r.getTienda());
+            orden.setNumeroComensales(r.getPersonas());
+            orden.setClienteNombre(r.getNombre());
+            orden.setClienteTelefono(r.getTelefono());
+            orden.setOrigen("WEB");
+            orden.setPendienteAceptar(true);
+            orden.setTipoEntrega("RESERVACION");
+            orden.setTrackingToken(nuevoTrackingToken());
+            orden.setEstado(OrdenEstado.ABIERTA);
+            orden = ordenRepository.save(orden);
+            Comensal comensal = new Comensal();
+            comensal.setOrden(orden);
+            comensal.setNumero(1);
+            comensalRepository.save(comensal);
+        } else if (!Boolean.TRUE.equals(orden.getPendienteAceptar())) {
+            throw new IllegalStateException("Tu pedido ya está en cocina; lo demás pídeselo a tu mesero");
+        }
+        if (notas != null && !notas.isBlank()) {
+            orden.setNotas(orden.getNotas() == null ? notas.trim() : orden.getNotas() + " · " + notas.trim());
+        }
+        Tienda tienda = r.getTienda();
+        for (PublicPedidoRequest.Item it : items) {
+            Product producto = productRepository.findById(it.getProductoId())
+                    .filter(p -> p.getTienda() != null && p.getTienda().getId().equals(tienda.getId()))
+                    .orElseThrow(() -> new IllegalArgumentException("Un producto de tu pedido ya no existe"));
+            if (!Boolean.TRUE.equals(producto.getIsActive()) || !Boolean.TRUE.equals(producto.getDisponible())
+                    || (producto.getCategory() != null && !Boolean.TRUE.equals(producto.getCategory().getIsActive()))) {
+                throw new IllegalArgumentException("\"" + producto.getName() + "\" no está disponible");
+            }
+            String obs = it.getObservaciones() != null && !it.getObservaciones().isBlank() ? it.getObservaciones().trim() : null;
+            crearLinea(orden, producto, null, BigDecimal.valueOf(it.getCantidad()), BigDecimal.ZERO, obs, it.getModificadorOpcionIds(), null);
+        }
+        recomputeTotals(orden);
+        return ordenRepository.save(orden);
+    }
+
+    /**
+     * Llegaron los de la reservación: su pedido anticipado se abre en la mesa (a nombre de quien
+     * marcó la llegada) y entra a cocina con la hora de llegada como hora de apertura.
+     */
+    @Transactional
+    public Orden activarPreorden(Orden orden, Mesa mesa, int personas, User actor) {
+        if (mesa.getEstado() != MesaEstado.DISPONIBLE && mesa.getEstado() != MesaEstado.RESERVADA) {
+            throw new IllegalStateException("La mesa " + mesa.getNumero() + " está ocupada; asigna otra mesa a la reservación");
+        }
+        orden.setMesa(mesa);
+        orden.setMesero(actor);
+        orden.setTipoEntrega(null);
+        orden.setPendienteAceptar(false);
+        orden.setOpenedAt(LocalDateTime.now());
+        int actuales = comensalRepository.findByOrdenIdOrderByNumeroAsc(orden.getId()).size();
+        for (int i = actuales + 1; i <= personas; i++) {
+            Comensal c = new Comensal();
+            c.setOrden(orden);
+            c.setNumero(i);
+            comensalRepository.save(c);
+        }
+        orden.setNumeroComensales(Math.max(personas, actuales));
+        boolean platillos = orden.getItems().stream()
+                .anyMatch(i -> !Boolean.TRUE.equals(i.getCargoExtra()) && i.getEstado() != OrdenDetalleEstado.CANCELADO);
+        if (platillos && orden.getEstado() == OrdenEstado.ABIERTA) orden.setEstado(OrdenEstado.EN_PROCESO);
+        Orden saved = ordenRepository.save(orden);
+        mesa.setEstado(MesaEstado.OCUPADA);
+        mesa.setOrdenActiva(saved);
+        mesaRepository.save(mesa);
+        auditoriaService.log(actor, "LLEGO_RESERVACION", "Orden", saved.getId(), null, "Mesa " + mesa.getNumero(), null);
+        return saved;
+    }
+
+    /** Cancela un pedido anticipado que sigue en espera (lo vendido regresa al inventario). */
+    @Transactional
+    public void cancelarPreorden(Orden orden, String motivo, User actor) {
+        for (OrdenDetalle item : orden.getItems()) {
+            if (item.getEstado() != OrdenDetalleEstado.CANCELADO) {
+                inventarioVentaService.devolver(item, item.getCantidad(), actor, "Pedido de reservación cancelado");
+            }
+        }
+        orden.setEstado(OrdenEstado.CANCELADA);
+        orden.setCancelledBy(actor);
+        orden.setCancelledAt(LocalDateTime.now());
+        orden.setMotivoCancelacion(motivo);
+        ordenRepository.save(orden);
+    }
+
+    /** Dirección de entrega en partes + completa (null = sin dirección, p. ej. para recoger). */
+    private static void ponerDireccion(Orden orden, com.nexora.restopos.util.Direccion.Partes d) {
+        orden.setDireccion(d != null ? d.completa() : null);
+        orden.setCalle(d != null ? d.calle() : null);
+        orden.setColonia(d != null ? d.colonia() : null);
+        orden.setCodigoPostal(d != null ? d.codigoPostal() : null);
     }
 
     /** Pedidos web de la tienda del actor que nadie ha aceptado ni rechazado todavía. */
@@ -349,7 +462,10 @@ public class OrdenService {
                 orden.getResenaEstrellas(), orden.getResenaComentario(),
                 entregadoEn, orden.getReporteTipo(), orden.getReporteProductos(), orden.getReporteComentario(),
                 enMesa ? null : reportarHasta, puedeReportar, enMesa ? orden.getMesa().getNumero() : null,
-                costoEnvio(orden), orden.getComprobantePath() != null, orden.getTransferenciaIncluyeEnvio());
+                costoEnvio(orden), orden.getComprobantePath() != null, orden.getTransferenciaIncluyeEnvio(), orden.getPagaCon(),
+                // Lo soltó un repartidor y nadie lo ha retomado: el cliente ve "buscando otro repartidor".
+                domicilio && orden.getRepartidor() == null && !"ENTREGADO".equals(estado) && !"RECHAZADO".equals(estado)
+                        && orden.getId() != null && entregaEventoRepository.existsByOrdenIdAndTipo(orden.getId(), "SOLTADO"));
     }
 
     /** Suma de los cargos de envío (no cancelados) del pedido; cero si no tiene. */
@@ -398,7 +514,9 @@ public class OrdenService {
     }
 
     private PublicPedidoStatus subirComprobante(Orden orden, org.springframework.web.multipart.MultipartFile file, boolean incluyeEnvio) {
-        if (!"DOMICILIO".equals(orden.getTipoEntrega()) || !"TRANSFERENCIA".equals(orden.getMetodoPago())) {
+        // A domicilio o para recoger (así la caja ya lo tiene validado cuando llega el cliente).
+        if (!"TRANSFERENCIA".equals(orden.getMetodoPago()) || orden.getMesa() != null
+                || !("DOMICILIO".equals(orden.getTipoEntrega()) || "RECOGER".equals(orden.getTipoEntrega()))) {
             throw new IllegalStateException("Este pedido no se paga por transferencia");
         }
         if (orden.getEstado() == OrdenEstado.CANCELADA) throw new IllegalStateException("Este pedido fue cancelado");
@@ -545,7 +663,6 @@ public class OrdenService {
         //   DOMICILIO → nombre, teléfono y dirección.
         String clienteNombre = req.getClienteNombre() != null ? req.getClienteNombre().trim() : "";
         String clienteTelefono = req.getClienteTelefono() != null ? req.getClienteTelefono().trim() : "";
-        String direccion = req.getDireccion() != null ? req.getDireccion().trim() : "";
         String tipo = null;
         if (mesa == null) {
             tipo = req.getTipoEntrega() != null && !req.getTipoEntrega().isBlank()
@@ -561,7 +678,6 @@ public class OrdenService {
             if ((domicilio || "RECOGER".equals(tipo)) && clienteTelefono.isEmpty()) {
                 throw new IllegalArgumentException("El teléfono del cliente es obligatorio");
             }
-            if (domicilio && direccion.isEmpty()) throw new IllegalArgumentException("La dirección de entrega es obligatoria");
             if (domicilio) {
                 costoEnvio = costoEnvioDomicilio(tiendaOrden);
                 if (costoEnvio == null) {
@@ -569,6 +685,9 @@ public class OrdenService {
                 }
             }
         }
+        com.nexora.restopos.util.Direccion.Partes dir = domicilio
+                ? com.nexora.restopos.util.Direccion.resolver(req.getCalle(), req.getColonia(), req.getCodigoPostal(), req.getDireccion(), true)
+                : null;
         Orden orden = new Orden();
         orden.setTienda(tiendaOrden);
         orden.setMesa(mesa);
@@ -578,7 +697,7 @@ public class OrdenService {
         // Solo tiene sentido sin mesa (para llevar) — una orden de mesa no se entrega a
         // ninguna dirección, así que se ignora si llega junto con un mesaId.
         // La dirección solo se guarda a domicilio (en los demás tipos no se entrega a ningún lado).
-        orden.setDireccion(domicilio ? direccion : null);
+        ponerDireccion(orden, dir);
         orden.setClienteNombre(mesa == null ? clienteNombre : null);
         orden.setClienteTelefono(mesa == null && !clienteTelefono.isEmpty() ? clienteTelefono : null);
         // DOMICILIO: aparece en la pantalla de Entregas para que un repartidor la lleve.
@@ -668,6 +787,7 @@ public class OrdenService {
     public OrdenDetalle agregarItem(Long ordenId, OrdenItemRequest req, User actor) {
         Orden orden = findById(ordenId, actor);
         ensureModificable(orden);
+        ensureNoSalioAEntregar(orden);
 
         Product producto = productService.findById(req.getProductoId(), actor);
         if (!Boolean.TRUE.equals(producto.getIsActive()) || !Boolean.TRUE.equals(producto.getDisponible())) {
@@ -684,7 +804,7 @@ public class OrdenService {
 
         OrdenDetalle saved = crearLinea(orden, producto, comensal, req.getCantidad(),
                 req.getDescuento() != null ? req.getDescuento() : BigDecimal.ZERO,
-                req.getObservaciones(), req.getModificadorOpcionIds());
+                req.getObservaciones(), req.getModificadorOpcionIds(), actor);
         if (orden.getEstado() == OrdenEstado.ABIERTA) orden.setEstado(OrdenEstado.EN_PROCESO);
         recomputeTotals(orden);
         ordenRepository.save(orden);
@@ -698,7 +818,7 @@ public class OrdenService {
      * ({@link #crearPedidoWeb}).
      */
     private OrdenDetalle crearLinea(Orden orden, Product producto, Comensal comensal, BigDecimal cantidad,
-                                    BigDecimal descuento, String observaciones, List<Long> modificadorOpcionIds) {
+                                    BigDecimal descuento, String observaciones, List<Long> modificadorOpcionIds, User actor) {
         List<ModificadorOpcion> opcionesElegidas = resolverModificadoresElegidos(producto, modificadorOpcionIds);
         BigDecimal extrasUnitario = opcionesElegidas.stream()
                 .map(ModificadorOpcion::getPrecioExtra)
@@ -730,6 +850,8 @@ public class OrdenService {
             ordenDetalleModificadorRepository.save(m);
             saved.getModificadores().add(m);
         }
+        // Productos con "Lleva inventario": se descuenta lo vendido (y se agota si llega a 0).
+        inventarioVentaService.descontar(saved, cantidad, actor);
         orden.getItems().add(saved);
         return saved;
     }
@@ -814,6 +936,7 @@ public class OrdenService {
         boolean subeCantidad = req.getCantidad().compareTo(item.getCantidad()) > 0;
         boolean cambiaMods = req.getModificadorOpcionIds() != null;
 
+        if (subeCantidad || cambiaMods) ensureNoSalioAEntregar(orden);
         boolean yaEntregado = item.getEstado() == OrdenDetalleEstado.ENTREGADO_MESERO
                 || item.getEstado() == OrdenDetalleEstado.ENTREGADO;
         if (yaEntregado && (subeCantidad || cambiaObs || cambiaMods)) {
@@ -845,6 +968,11 @@ public class OrdenService {
         extrasUnitario = item.getModificadores().stream()
                 .map(OrdenDetalleModificador::getPrecioExtra)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // Inventario: subir la cantidad descuenta la diferencia (si alcanza); bajarla la regresa.
+        BigDecimal diferencia = req.getCantidad().subtract(item.getCantidad());
+        if (diferencia.signum() > 0) inventarioVentaService.descontar(item, diferencia, actor);
+        else if (diferencia.signum() < 0) inventarioVentaService.devolver(item, diferencia.negate(), actor, "Cantidad reducida");
 
         item.setComensal(comensal);
         item.setCantidad(req.getCantidad());
@@ -912,6 +1040,7 @@ public class OrdenService {
         OrdenDetalleEstado anterior = item.getEstado();
         item.setEstado(OrdenDetalleEstado.CANCELADO);
         ordenDetalleRepository.save(item);
+        inventarioVentaService.devolver(item, item.getCantidad(), actor, "Cancelado");
         recomputeTotals(orden);
         ordenRepository.save(orden);
         auditoriaService.log(actor, "CANCELAR_ITEM_ORDEN", "OrdenDetalle", item.getId(), anterior, item.getEstado(), motivo);
@@ -926,6 +1055,12 @@ public class OrdenService {
             throw new IllegalStateException("No se puede cancelar: la orden ya tiene pagos registrados");
         }
         OrdenEstado anterior = orden.getEstado();
+        // Lo que no se canceló antes regresa al inventario (solo productos con inventario).
+        for (OrdenDetalle item : orden.getItems()) {
+            if (item.getEstado() != OrdenDetalleEstado.CANCELADO) {
+                inventarioVentaService.devolver(item, item.getCantidad(), actor, "Orden cancelada");
+            }
+        }
         orden.setEstado(OrdenEstado.CANCELADA);
         orden.setCancelledBy(actor);
         orden.setCancelledAt(LocalDateTime.now());
@@ -939,12 +1074,41 @@ public class OrdenService {
      * Avisos informativos del centro de notificaciones: reportes de clientes con problema
      * (últimas 24 h) y envíos a domicilio entregados (últimas 3 h), de la tienda del actor.
      */
-    public java.util.Map<String, List<Orden>> avisosRecientes(User actor) {
+    public java.util.Map<String, List<?>> avisosRecientes(User actor) {
         Long scope = tenantScope.scopeId(actor);
         LocalDateTime ahora = LocalDateTime.now();
         return java.util.Map.of(
                 "reportes", ordenRepository.findReportesProblemaDesde(scope, ahora.minusHours(24)),
-                "entregados", ordenRepository.findEntregadosDesde(scope, ahora.minusHours(3)));
+                "entregados", ordenRepository.findEntregadosDesde(scope, ahora.minusHours(3)),
+                "tomados", ordenRepository.findTomadosDesde(scope, ahora.minusHours(3)),
+                "enCamino", ordenRepository.findEnCaminoDesde(scope, ahora.minusHours(3)),
+                "soltados", entregaEventoRepository.findSoltadosDesde(scope, ahora.minusHours(3)).stream()
+                        .map(e -> new com.nexora.restopos.dto.AvisoSoltado(e.getOrdenId(),
+                                e.getRepartidor() != null ? e.getRepartidor().getName() : null, e.getDetalle(), e.getCreatedAt()))
+                        .toList(),
+                "cuentasPorCobrar", cuentasPorCobrar(actor, scope, ahora.minusHours(12)));
+    }
+
+    /**
+     * Cuentas generadas y sin cobrar, para avisarle a quien cobra (tiene CASH_CUTS): el mesero
+     * imprime la cuenta y el cliente va a pagar a la caja. Los demás reciben la lista vacía.
+     */
+    private List<com.nexora.restopos.dto.AvisoCuenta> cuentasPorCobrar(User actor, Long scope, LocalDateTime desde) {
+        if (actor.getRole() == null || !actor.getRole().getSections().contains(com.nexora.restopos.model.AppSection.CASH_CUTS)) {
+            return List.of();
+        }
+        return cuentaRepository.findPendientesDesde(scope, desde).stream()
+                .filter(c -> c.getOrden().getEstado() != OrdenEstado.CANCELADA)
+                .map(c -> {
+                    Orden o = c.getOrden();
+                    String lugar = o.getMesa() != null ? "Mesa " + o.getMesa().getNumero()
+                            : etiquetaTipoEntrega(o.getTipoEntrega()) + (o.getClienteNombre() != null ? " · " + o.getClienteNombre() : "");
+                    if (c.getComensal() != null) lugar += " · Comensal " + c.getComensal().getNumero();
+                    return new com.nexora.restopos.dto.AvisoCuenta(c.getId(), o.getId(),
+                            c.getTicketFolio() != null ? c.getTicketFolio() : String.valueOf(c.getId()), lugar, c.getTotal(),
+                            c.getCreatedBy() != null ? c.getCreatedBy().getName() : null, c.getCreatedAt());
+                })
+                .toList();
     }
 
     /** Llamado por {@link CuentaService} cuando se crea una cuenta: la mesa pasa a "en espera de cobro". */
@@ -1193,6 +1357,16 @@ public class OrdenService {
         mesaRepository.save(mesa);
         auditoriaService.log(actor, "SEPARAR_MESA", "Orden", orden.getId(), "Mesa " + mesa.getNumero(), null, null);
         return orden;
+    }
+
+    /**
+     * Un envío a domicilio que ya salió ("Voy en camino") o ya se entregó no admite productos
+     * nuevos ni más cantidad: el repartidor ya va con lo que lleva; algo más es otro pedido.
+     */
+    private void ensureNoSalioAEntregar(Orden orden) {
+        if ("DOMICILIO".equals(orden.getTipoEntrega()) && (orden.getEnCaminoAt() != null || orden.getEntregadaAt() != null)) {
+            throw new IllegalStateException("Este pedido ya va en camino: para agregar algo más, haz un pedido nuevo");
+        }
     }
 
     private void ensureModificable(Orden orden) {

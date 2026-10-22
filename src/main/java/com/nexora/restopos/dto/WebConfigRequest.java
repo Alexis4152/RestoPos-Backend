@@ -41,4 +41,12 @@ public class WebConfigRequest {
     private Integer reservaDiasMax;
     private java.time.LocalTime reservaHoraInicio;
     private java.time.LocalTime reservaHoraFin;
+    private Boolean reservaTodasMesas;
+    @jakarta.validation.constraints.Min(value = 0, message = "Las horas para hacer cambios no pueden ser negativas")
+    @jakarta.validation.constraints.Max(value = 168, message = "Las horas para hacer cambios no pueden pasar de 168")
+    private Integer reservaCambiosHoras;
+    private Boolean reservaRetrasoEnabled;
+    @jakarta.validation.constraints.Min(value = 0, message = "Las horas para avisar retraso no pueden ser negativas")
+    @jakarta.validation.constraints.Max(value = 72, message = "Las horas para avisar retraso no pueden pasar de 72")
+    private Integer reservaRetrasoHoras;
 }

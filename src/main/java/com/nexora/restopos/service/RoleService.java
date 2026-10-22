@@ -206,17 +206,30 @@ public class RoleService {
         createSeedRole("ADMIN", "Administrador — acceso total", true, EnumSet.allOf(AppSection.class), tienda);
         createSeedRole("MESERO", "Mesero — mesas y toma de órdenes", false, meseroSections, tienda);
         ensureRepartidorRole(tienda);
+        ensureCajeroRole(tienda);
     }
 
     /**
-     * Asegura que la tienda tenga el rol REPARTIDOR (entregas a domicilio + su propio corte de
-     * caja, que es donde se registra lo que cobra al entregar). Idempotente: no hace nada si
-     * ya existe un rol con ese nombre en la tienda (aunque el admin le haya cambiado secciones).
+     * Asegura que la tienda tenga el rol CAJERO: cobra las cuentas que generan los meseros (y el
+     * dinero que traen los repartidores) en su propio corte de caja. Cobrar = tener la sección
+     * CASH_CUTS; el mesero no la tiene, solo genera e imprime la cuenta. Idempotente.
+     */
+    public void ensureCajeroRole(Tienda tienda) {
+        if (roleRepository.existsByNameAndTiendaId("CAJERO", tienda.getId())) return;
+        createSeedRole("CAJERO", "Cajero — cobra las cuentas y maneja el corte de caja", false,
+                EnumSet.of(AppSection.DASHBOARD, AppSection.TABLES, AppSection.ORDERS, AppSection.TAKEAWAY,
+                        AppSection.CASH_CUTS, AppSection.SALES), tienda);
+    }
+
+    /**
+     * Asegura que la tienda tenga el rol REPARTIDOR (solo entregas a domicilio: el dinero que
+     * trae lo recibe la caja). Idempotente: no hace nada si ya existe un rol con ese nombre en
+     * la tienda (aunque el admin le haya cambiado secciones).
      */
     public void ensureRepartidorRole(Tienda tienda) {
         if (roleRepository.existsByNameAndTiendaId("REPARTIDOR", tienda.getId())) return;
-        createSeedRole("REPARTIDOR", "Repartidor — entregas a domicilio y cobro al entregar", false,
-                EnumSet.of(AppSection.DELIVERY, AppSection.CASH_CUTS), tienda);
+        createSeedRole("REPARTIDOR", "Repartidor — entregas a domicilio", false,
+                EnumSet.of(AppSection.DELIVERY), tienda);
     }
 
     /**

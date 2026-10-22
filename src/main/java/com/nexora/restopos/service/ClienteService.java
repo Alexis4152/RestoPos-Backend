@@ -60,7 +60,7 @@ public class ClienteService {
         c.setTienda(info.getTienda());
         c.setNombre(req.getNombre().trim());
         c.setTelefono(req.getTelefono().trim());
-        c.setDireccion(req.getDireccion().trim());
+        ponerDireccion(c, com.nexora.restopos.util.Direccion.resolver(req.getCalle(), req.getColonia(), req.getCodigoPostal(), req.getDireccion(), true));
         c.setEmail(email);
         c.setPasswordHash(passwordEncoder.encode(req.getPassword()));
         c.setIsActive(true);
@@ -112,7 +112,14 @@ public class ClienteService {
 
     public PublicSiteDtos.ClientePerfil perfil(Cliente c) {
         return new PublicSiteDtos.ClientePerfil(c.getId(), c.getNombre(), c.getTelefono(), c.getDireccion(), c.getEmail(),
-                Boolean.TRUE.equals(c.getEmailVerificado()));
+                Boolean.TRUE.equals(c.getEmailVerificado()), c.getCalle(), c.getColonia(), c.getCodigoPostal());
+    }
+
+    private static void ponerDireccion(Cliente c, com.nexora.restopos.util.Direccion.Partes d) {
+        c.setDireccion(d.completa());
+        c.setCalle(d.calle());
+        c.setColonia(d.colonia());
+        c.setCodigoPostal(d.codigoPostal());
     }
 
     // ── Verificación de correo y recuperación de contraseña ─────────────────────────────
@@ -197,7 +204,7 @@ public class ClienteService {
         validarTelefono(req.getTelefono());
         c.setNombre(req.getNombre().trim());
         c.setTelefono(req.getTelefono().trim());
-        c.setDireccion(req.getDireccion().trim());
+        ponerDireccion(c, com.nexora.restopos.util.Direccion.resolver(req.getCalle(), req.getColonia(), req.getCodigoPostal(), req.getDireccion(), true));
         return perfil(clienteRepository.save(c));
     }
 

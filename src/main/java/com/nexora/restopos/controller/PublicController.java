@@ -144,6 +144,36 @@ public class PublicController {
                 "Reservación cancelada"));
     }
 
+    /** El cliente cambia personas o necesidades (hasta las horas que configuró el restaurante). */
+    @PutMapping("/reservaciones/{token}")
+    public ResponseEntity<ApiResponse<ReservacionDtos.Publica>> modificarReservacion(@PathVariable String slug, @PathVariable String token,
+                                                                                   @Valid @RequestBody ReservacionDtos.Cambios req) {
+        return ResponseEntity.ok(ApiResponse.ok(reservacionService.modificarPorCliente(publicSiteService.resolve(slug), token, req),
+                "Reservación actualizada"));
+    }
+
+    /** "Llegaré un poco más tarde". */
+    @PostMapping("/reservaciones/{token}/retraso")
+    public ResponseEntity<ApiResponse<ReservacionDtos.Publica>> retrasoReservacion(@PathVariable String slug, @PathVariable String token,
+                                                                                 @Valid @RequestBody ReservacionDtos.Retraso req) {
+        return ResponseEntity.ok(ApiResponse.ok(reservacionService.avisarRetraso(publicSiteService.resolve(slug), token, req.getMinutos()),
+                "Avisamos al restaurante"));
+    }
+
+    /** Pedido anticipado para la reservación: entra a cocina cuando llegan. */
+    @PostMapping("/reservaciones/{token}/pedido")
+    public ResponseEntity<ApiResponse<ReservacionDtos.Publica>> pedidoReservacion(@PathVariable String slug, @PathVariable String token,
+                                                                                @Valid @RequestBody ReservacionDtos.Preorden req) {
+        return ResponseEntity.ok(ApiResponse.ok(reservacionService.preordenar(publicSiteService.resolve(slug), token, req),
+                "Tu pedido quedó listo: lo preparamos cuando llegues"));
+    }
+
+    @PostMapping("/reservaciones/{token}/pedido/cancelar")
+    public ResponseEntity<ApiResponse<ReservacionDtos.Publica>> cancelarPedidoReservacion(@PathVariable String slug, @PathVariable String token) {
+        return ResponseEntity.ok(ApiResponse.ok(reservacionService.cancelarPreorden(publicSiteService.resolve(slug), token),
+                "Pedido cancelado"));
+    }
+
     /** Reservaciones del cliente registrado. */
     @GetMapping("/clientes/me/reservaciones")
     public ResponseEntity<ApiResponse<List<ReservacionDtos.Publica>>> misReservaciones(@PathVariable String slug,

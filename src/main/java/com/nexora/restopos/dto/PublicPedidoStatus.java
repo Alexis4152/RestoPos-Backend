@@ -35,7 +35,11 @@ public record PublicPedidoStatus(
         // personal) y si la transferencia lo incluye.
         BigDecimal costoEnvio,
         boolean comprobanteEnviado,
-        Boolean transferenciaIncluyeEnvio
+        Boolean transferenciaIncluyeEnvio,
+        // Efectivo: con cuánto dijo que paga (para mostrarle su cambio). null = no lo indicó.
+        BigDecimal pagaCon,
+        // A domicilio: el repartidor lo soltó y nadie lo ha vuelto a tomar ("buscando otro repartidor").
+        boolean buscandoRepartidor
 ) {
     public record Linea(Long id, String nombre, BigDecimal cantidad, BigDecimal subtotal, List<String> modificadores) {}
 }

@@ -199,6 +199,8 @@ public class ProductBulkImportService {
         req.setStock(v[5].isBlank() ? 0 : parseInt(v[5], "stock"));
         req.setMinStock(v[6].isBlank() ? 0 : parseInt(v[6], "stock mínimo"));
         req.setUnit(v[7].isBlank() ? "pieza" : v[7]);
+        // La carga masiva es la plantilla de Inventario (trae stock y mínimo): lleva inventario.
+        req.setControlaInventario(true);
 
         String categoryName = v[8].trim();
         if (categoryName.isEmpty()) {

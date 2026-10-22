@@ -42,11 +42,13 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     @Query("SELECT p FROM Product p WHERE p.isActive = true " +
            "AND (:q IS NULL OR LOWER(p.name) LIKE LOWER(CONCAT('%',CAST(:q AS string),'%')) OR LOWER(p.barcode) LIKE LOWER(CONCAT('%',CAST(:q AS string),'%'))) " +
            "AND (:categoryId IS NULL OR p.category.id = :categoryId) " +
-           "AND (:lowStock IS NULL OR (:lowStock = true AND p.minStock > 0 AND p.stock <= p.minStock)) " +
+           "AND (:soloInventario IS NULL OR :soloInventario = false OR p.controlaInventario = true) " +
+           "AND (:lowStock IS NULL OR (:lowStock = true AND p.controlaInventario = true AND p.minStock > 0 AND p.stock <= p.minStock)) " +
            "AND (:tiendaId IS NULL OR p.tienda.id = :tiendaId)")
     Page<Product> searchActive(@Param("q") String q,
                                 @Param("categoryId") Long categoryId,
                                 @Param("lowStock") Boolean lowStock,
+                                @Param("soloInventario") Boolean soloInventario,
                                 @Param("tiendaId") Long tiendaId,
                                 Pageable pageable);
 
@@ -56,7 +58,7 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
      * un platillo de restaurante normalmente no lleva inventario, así que uno con stock/mínimo
      * en 0 (nunca configurados) no debe aparecer como "stock bajo".
      */
-    @Query("SELECT p FROM Product p WHERE p.isActive = true AND p.minStock > 0 AND p.stock <= p.minStock " +
+    @Query("SELECT p FROM Product p WHERE p.isActive = true AND p.controlaInventario = true AND p.minStock > 0 AND p.stock <= p.minStock " +
            "AND (:tiendaId IS NULL OR p.tienda.id = :tiendaId) ORDER BY p.stock ASC")
     List<Product> findLowStockForTienda(@Param("tiendaId") Long tiendaId);
 
@@ -97,7 +99,7 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
      * obligatorio a propósito (a diferencia de {@link #searchActive}): sin texto, listar el
      * catálogo completo de varias tiendas ajenas no tendría sentido para este caso de uso.
      */
-    @Query("SELECT p FROM Product p WHERE p.isActive = true AND p.stock > 0 AND p.tienda.id IN :tiendaIds " +
+    @Query("SELECT p FROM Product p WHERE p.isActive = true AND p.controlaInventario = true AND p.stock > 0 AND p.tienda.id IN :tiendaIds " +
            "AND (LOWER(p.name) LIKE LOWER(CONCAT('%',CAST(:q AS string),'%')) OR LOWER(p.barcode) LIKE LOWER(CONCAT('%',CAST(:q AS string),'%'))) " +
            "ORDER BY p.tienda.name ASC, p.name ASC")
     Page<Product> searchAcrossTiendas(@Param("tiendaIds") List<Long> tiendaIds,

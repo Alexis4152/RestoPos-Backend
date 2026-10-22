@@ -66,13 +66,22 @@ public class ReservacionController {
                 "Reservación cancelada"));
     }
 
+    /** Llegaron. Body opcional {"mesaId": 3}: mesa donde se sientan (si traen pedido anticipado sin mesa). */
     @PostMapping("/{id}/llego")
-    public ResponseEntity<ApiResponse<ReservacionDtos.Staff>> llego(@PathVariable Long id, @AuthenticationPrincipal User actor) {
-        return ResponseEntity.ok(ApiResponse.ok(reservacionService.marcarLlegada(id, true, actor)));
+    public ResponseEntity<ApiResponse<ReservacionDtos.Staff>> llego(@PathVariable Long id,
+                                                                   @RequestBody(required = false) ReservacionDtos.Llegada req,
+                                                                   @AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(reservacionService.marcarLlegada(id, true, req != null ? req.getMesaId() : null, actor)));
     }
 
     @PostMapping("/{id}/no-llego")
     public ResponseEntity<ApiResponse<ReservacionDtos.Staff>> noLlego(@PathVariable Long id, @AuthenticationPrincipal User actor) {
-        return ResponseEntity.ok(ApiResponse.ok(reservacionService.marcarLlegada(id, false, actor)));
+        return ResponseEntity.ok(ApiResponse.ok(reservacionService.marcarLlegada(id, false, null, actor)));
+    }
+
+    /** Reglas de la tienda para la pantalla: mesas reservables y desde cuándo se marca la llegada. */
+    @GetMapping("/reglas")
+    public ResponseEntity<ApiResponse<ReservacionDtos.Reglas>> reglas(@AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(reservacionService.reglas(actor)));
     }
 }

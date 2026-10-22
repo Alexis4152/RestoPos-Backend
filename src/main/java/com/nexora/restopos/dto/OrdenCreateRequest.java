@@ -15,6 +15,14 @@ public class OrdenCreateRequest {
     // Orden.direccion. max=200: debe coincidir con esa columna (VARCHAR(200)).
     @Size(max = 200, message = "La dirección no puede tener más de 200 caracteres")
     private String direccion;
+
+    // Dirección en partes (ver util.Direccion); "direccion" queda para pantallas viejas.
+    @Size(max = 100, message = "La calle no puede tener más de 100 caracteres")
+    private String calle;
+    @Size(max = 70, message = "La colonia no puede tener más de 70 caracteres")
+    private String colonia;
+    @Size(max = 10, message = "El código postal no es válido")
+    private String codigoPostal;
     // Obligatorios cuando mesaId == null (para llevar) — se validan en OrdenService#abrir.
     @Size(max = 100, message = "El nombre no puede tener más de 100 caracteres")
     private String clienteNombre;

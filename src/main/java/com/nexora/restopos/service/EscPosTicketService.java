@@ -2,6 +2,7 @@ package com.nexora.restopos.service;
 
 import com.nexora.restopos.model.Cuenta;
 import com.nexora.restopos.model.CuentaDetalle;
+import com.nexora.restopos.model.CuentaEstado;
 import com.nexora.restopos.model.Orden;
 import com.nexora.restopos.model.OrdenDetalleModificador;
 import com.nexora.restopos.model.Pago;
@@ -69,11 +70,39 @@ public class EscPosTicketService {
      * @return el ticket completo codificado en hexadecimal
      */
     public String build(Cuenta cuenta) {
+        return build(cuenta, 1);
+    }
+
+    /**
+     * Igual que {@link #build(Cuenta)} pero con varias copias en un solo trabajo de impresión,
+     * cada una con su leyenda: con 2, la primera es "COPIA CLIENTE" (la que se lleva el cliente
+     * a la caja, con el QR de opinión) y la segunda "COPIA COMERCIO". Si la cuenta todavía no
+     * está pagada, cada copia dice "CUENTA POR PAGAR" para que nadie la tome como comprobante.
+     *
+     * @param copias de 1 a 3 (fuera de rango se ajusta)
+     */
+    public String build(Cuenta cuenta, int copias) {
+        int n = Math.max(1, Math.min(copias, 3));
+        boolean porPagar = cuenta.getEstado() == CuentaEstado.PENDIENTE;
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        boolean huboEfectivo = false;
+        for (int i = 0; i < n; i++) {
+            String etiqueta = n == 1 ? null : i == 0 ? "COPIA CLIENTE" : i == 1 ? "COPIA COMERCIO" : "COPIA " + (i + 1);
+            huboEfectivo = copia(buf, cuenta, etiqueta, porPagar, i == 0);
+        }
+        // Solo se abre el cajon si hubo al menos un pago en efectivo (ver Javadoc de build()).
+        // ESC p m t1 t2 : pulso al pin 2 del conector RJ11 del cajon (m=0).
+        if (huboEfectivo) {
+            ctl(buf, 0x1B, 0x70, 0x00, 0x19, 0xFA);
+        }
+        return toHex(buf.toByteArray());
+    }
+
+    /** Escribe una copia completa del ticket (con su corte de papel); devuelve si hubo pago en efectivo. */
+    private boolean copia(ByteArrayOutputStream buf, Cuenta cuenta, String etiqueta, boolean porPagar, boolean conQr) {
         Orden orden = cuenta.getOrden();
         Tienda tienda = orden.getTienda();
         TiendaInfo info = tienda != null ? tiendaInfoRepository.findByTiendaId(tienda.getId()).orElse(null) : null;
-
-        ByteArrayOutputStream buf = new ByteArrayOutputStream();
 
         ctl(buf, 0x1B, 0x40); // ESC @ : inicializa la impresora
 
@@ -84,6 +113,13 @@ public class EscPosTicketService {
 
         if (info != null && info.getRfc() != null && !info.getRfc().isBlank()) {
             text(buf, "RFC: " + info.getRfc() + "\n");
+        }
+        if (porPagar || etiqueta != null) {
+            ctl(buf, 0x1B, 0x45, 0x01);
+            if (porPagar) text(buf, "CUENTA POR PAGAR\n");
+            if (etiqueta != null) text(buf, etiqueta + "\n");
+            ctl(buf, 0x1B, 0x45, 0x00);
+            if (porPagar) text(buf, "No es comprobante de pago\n");
         }
         ctl(buf, 0x1B, 0x61, 0x00); // alinear a la izquierda
         text(buf, line());
@@ -161,24 +197,24 @@ public class EscPosTicketService {
         // QR "califica tu visita" (solo cuentas de mesa con página web activa), impreso como
         // imagen raster para que salga en cualquier impresora (ver qrRaster).
         String urlOpinion = null;
-        try { urlOpinion = opinionService.enlace(cuenta); } catch (Exception ignored) { /* el ticket sale igual */ }
+        if (conQr) {
+            try { urlOpinion = opinionService.enlace(cuenta); } catch (Exception ignored) { /* el ticket sale igual */ }
+        }
         if (urlOpinion != null) {
             text(buf, "Que tal estuvo? Califica tu visita\n");
             qrRaster(buf, urlOpinion);
             text(buf, "\n");
         }
+        if (porPagar) {
+            ctl(buf, 0x1B, 0x45, 0x01);
+            text(buf, "Pague con este ticket en caja\n");
+            ctl(buf, 0x1B, 0x45, 0x00);
+        }
         text(buf, "Gracias por su visita\n");
         ctl(buf, 0x1B, 0x61, 0x00);
         text(buf, "\n\n\n");
         ctl(buf, 0x1D, 0x56, 0x01); // GS V 1 : corte parcial del papel
-
-        // Solo se abre el cajon si hubo al menos un pago en efectivo (ver Javadoc de build()).
-        // ESC p m t1 t2 : pulso al pin 2 del conector RJ11 del cajon (m=0).
-        if (huboEfectivo) {
-            ctl(buf, 0x1B, 0x70, 0x00, 0x19, 0xFA);
-        }
-
-        return toHex(buf.toByteArray());
+        return huboEfectivo;
     }
 
     /** Ancho del QR impreso, en puntos: cabe en papel de 58 mm (384 puntos) y de 80 mm. */

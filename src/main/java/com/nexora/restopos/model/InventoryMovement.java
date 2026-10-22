@@ -27,7 +27,8 @@ public class InventoryMovement {
 
     /** Usuario que provocó el movimiento (quien hizo la venta, el ajuste manual, etc.). */
     @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "user_id", nullable = false)
+    // null = movimiento sin usuario del personal (venta de un pedido de la página web).
+    @JoinColumn(name = "user_id")
     private User user;
 
     @Enumerated(EnumType.STRING)

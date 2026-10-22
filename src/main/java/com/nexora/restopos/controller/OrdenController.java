@@ -153,9 +153,9 @@ public class OrdenController {
         return ResponseEntity.ok(ApiResponse.ok(null, "Producto cancelado"));
     }
 
-    /** Avisos informativos para la campana: reportes de clientes con problema y entregas a domicilio recientes. */
+    /** Avisos para la campana: reportes de clientes con problema y envíos recientes (tomados, en camino, entregados). */
     @GetMapping("/avisos")
-    public ResponseEntity<ApiResponse<java.util.Map<String, List<Orden>>>> avisos(@AuthenticationPrincipal User actor) {
+    public ResponseEntity<ApiResponse<java.util.Map<String, List<?>>>> avisos(@AuthenticationPrincipal User actor) {
         return ResponseEntity.ok(ApiResponse.ok(ordenService.avisosRecientes(actor)));
     }
 

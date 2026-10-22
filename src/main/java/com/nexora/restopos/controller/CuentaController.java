@@ -89,9 +89,11 @@ public class CuentaController {
      */
     @GetMapping("/api/accounts/{id}/ticket-escpos")
     @PreAuthorize("@sectionAccess.checkAny('ORDERS', 'SALES')")
-    public ResponseEntity<ApiResponse<String>> ticketEscPos(@PathVariable Long id, @AuthenticationPrincipal User actor) {
+    public ResponseEntity<ApiResponse<String>> ticketEscPos(@PathVariable Long id,
+                                                            @RequestParam(defaultValue = "1") int copias,
+                                                            @AuthenticationPrincipal User actor) {
         Cuenta cuenta = cuentaService.findById(id, actor);
-        return ResponseEntity.ok(ApiResponse.ok(escPosTicketService.build(cuenta)));
+        return ResponseEntity.ok(ApiResponse.ok(escPosTicketService.build(cuenta, copias)));
     }
 
     @PostMapping("/api/accounts/{id}/ticket/email")

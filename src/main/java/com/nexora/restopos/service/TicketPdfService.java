@@ -80,6 +80,10 @@ public class TicketPdfService {
                 document.add(paragraph("RFC: " + info.getRfc(), FONT_SUBTLE, Element.ALIGN_CENTER, 0, 0));
             }
             addAddressLines(document, info);
+            if (cuenta.getEstado() == com.nexora.restopos.model.CuentaEstado.PENDIENTE) {
+                document.add(paragraph("CUENTA POR PAGAR — no es comprobante de pago", FONT_BODY, Element.ALIGN_CENTER, 6, 0));
+                document.add(paragraph("Pague con este ticket en caja", FONT_SUBTLE, Element.ALIGN_CENTER, 0, 0));
+            }
             addSeparator(document, 10);
 
             // ── Datos de la cuenta ───────────────────────────────────────────

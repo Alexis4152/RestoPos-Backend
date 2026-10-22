@@ -16,4 +16,6 @@ public class MesaRequest {
     private Long zonaId;
     // solo se respeta si la mesa no tiene una orden activa (ver MesaService.update)
     private MesaEstado estado;
+    // Disponible para reservaciones (null = no se cambia; al crear, sí)
+    private Boolean reservable;
 }

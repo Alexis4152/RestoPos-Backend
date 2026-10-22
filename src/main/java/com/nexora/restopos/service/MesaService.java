@@ -56,6 +56,7 @@ public class MesaService {
         m.setCapacidad(req.getCapacidad());
         m.setZona(resolveZona(req.getZonaId(), actor));
         m.setEstado(MesaEstado.DISPONIBLE);
+        m.setReservable(req.getReservable() == null || req.getReservable());
         m.setTienda(actor.getTienda());
         m.setCreatedBy(actor);
         return mesaRepository.save(m);
@@ -65,6 +66,7 @@ public class MesaService {
         Mesa m = findById(id, actor);
         m.setNumero(req.getNumero());
         m.setCapacidad(req.getCapacidad());
+        if (req.getReservable() != null) m.setReservable(req.getReservable());
         m.setZona(resolveZona(req.getZonaId(), actor));
         // el estado solo se puede forzar a mano si no hay una orden activa gobernándolo
         if (req.getEstado() != null) {

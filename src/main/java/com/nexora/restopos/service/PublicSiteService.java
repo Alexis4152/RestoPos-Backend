@@ -119,7 +119,8 @@ public class PublicSiteService {
                                 .toList()))
                 .filter(g -> !g.opciones().isEmpty())
                 .toList();
-        return new PublicSiteDtos.Producto(p.getId(), p.getName(), p.getDescription(), p.getPrice(), p.getImageUrl(), grupos);
+        return new PublicSiteDtos.Producto(p.getId(), p.getName(), p.getDescription(), p.getPrice(), p.getImageUrl(), grupos,
+                p.isSinInventario());
     }
 
     /**

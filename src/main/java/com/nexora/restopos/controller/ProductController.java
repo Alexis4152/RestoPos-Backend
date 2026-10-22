@@ -77,7 +77,7 @@ public class ProductController {
                                      @RequestParam(defaultValue = "20") int size,
                                      @AuthenticationPrincipal User actor) {
         Pageable pageable = PageRequest.of(page, size);
-        Page<Product> result = productService.search(q, categoryId, lowStock, pageable, actor);
+        Page<Product> result = productService.search(q, categoryId, lowStock, false, pageable, actor);
         return ResponseEntity.ok(ApiResponse.ok(result.getContent(), null));
     }
 
@@ -122,7 +122,8 @@ public class ProductController {
                                                                     @RequestParam(defaultValue = "20") int size,
                                                                     @AuthenticationPrincipal User actor) {
         Pageable pageable = PageRequest.of(page, size);
-        Page<Product> result = productService.search(q, categoryId, lowStock, pageable, actor);
+        // Inventario: solo los productos que llevan inventario.
+        Page<Product> result = productService.search(q, categoryId, lowStock, true, pageable, actor);
         return ResponseEntity.ok(ApiResponse.ok(PageResponse.of(result), null));
     }
 

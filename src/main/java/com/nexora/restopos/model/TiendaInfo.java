@@ -149,6 +149,26 @@ public class TiendaInfo {
 
     private java.time.LocalTime reservaHoraFin;
 
+    // true = cualquier mesa activa se puede reservar; false = solo las marcadas "reservable" (Mesa).
+    @Column(nullable = false, columnDefinition = "boolean default true")
+    @Builder.Default
+    private Boolean reservaTodasMesas = true;
+
+    // Hasta cuántas horas antes de la reservación el cliente puede cambiar personas o necesidades.
+    @Column(nullable = false, columnDefinition = "integer default 2")
+    @Builder.Default
+    private Integer reservaCambiosHoras = 2;
+
+    // El cliente puede avisar desde la página "llegaré un poco más tarde"...
+    @Column(nullable = false, columnDefinition = "boolean default true")
+    @Builder.Default
+    private Boolean reservaRetrasoEnabled = true;
+
+    // ...hasta estas horas antes de su reservación (después, que llame).
+    @Column(nullable = false, columnDefinition = "integer default 3")
+    @Builder.Default
+    private Integer reservaRetrasoHoras = 3;
+
     // LAZY: evita cargar en cadena Role/Tienda/etc. de ese usuario (mismo motivo que en las demás entidades)
     @JsonIgnoreProperties({"role", "tienda", "createdBy", "updatedBy", "deletedBy"})
     @ManyToOne(fetch = FetchType.LAZY)

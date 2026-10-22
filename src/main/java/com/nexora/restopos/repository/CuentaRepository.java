@@ -52,6 +52,12 @@ public interface CuentaRepository extends JpaRepository<Cuenta, Long> {
                                @Param("to") LocalDateTime to,
                                @Param("metodo") PaymentMethod metodo);
 
+    /** Cuentas por cobrar generadas desde {@code desde} (avisos de la caja), más recientes primero. */
+    @Query("SELECT c FROM Cuenta c JOIN c.orden o WHERE (:tiendaId IS NULL OR o.tienda.id = :tiendaId) " +
+           "AND c.estado = com.nexora.restopos.model.CuentaEstado.PENDIENTE AND c.createdAt >= :desde " +
+           "ORDER BY c.createdAt DESC")
+    List<Cuenta> findPendientesDesde(@Param("tiendaId") Long tiendaId, @Param("desde") LocalDateTime desde);
+
     /** Todas las cuentas de las órdenes dadas, para armar el desglose de {@code searchVentas}. */
     List<Cuenta> findByOrdenIdInOrderByCreatedAtAsc(List<Long> ordenIds);
 }

@@ -100,12 +100,19 @@ public class DeliveryService {
                 .allMatch(i -> i.getEstado() == OrdenDetalleEstado.ENTREGADO);
     }
 
-    /** Suelta un envío que había tomado (ej. se lo pasa a otro repartidor). Un admin puede soltar cualquiera. */
+    /**
+     * Suelta un envío que había tomado, con el motivo (obligatorio). Se puede aunque ya vaya en
+     * camino: el pedido vuelve a quedar disponible para otro repartidor, el cliente ve "estamos
+     * buscando otro repartidor" y la caja recibe el aviso con el motivo. Un admin puede soltar
+     * cualquiera.
+     */
     @Transactional
-    public Orden soltar(Long ordenId, User actor) {
+    public Orden soltar(Long ordenId, String motivo, User actor) {
+        String m = motivo == null ? "" : motivo.trim();
+        if (m.length() < 3) throw new IllegalArgumentException("Escribe por qué sueltas el pedido");
+        if (m.length() > 100) m = m.substring(0, 100);
         Orden orden = envioPendiente(ordenId, actor);
         if (orden.getRepartidor() == null) return orden;
-        if (orden.getEnCaminoAt() != null) throw new IllegalStateException("Ya vas en camino con este pedido");
         if (!orden.getRepartidor().getId().equals(actor.getId()) && !tenantScope.isAdminLevel(actor)) {
             throw new IllegalStateException("Solo quien lleva el pedido puede soltarlo");
         }
@@ -113,16 +120,18 @@ public class DeliveryService {
         String anterior = anteriorRepartidor.getName();
         orden.setRepartidor(null);
         orden.setTomadaAt(null);
+        orden.setEnCaminoAt(null); // ya no va en camino: lo tiene que tomar otro
         Orden saved = ordenRepository.save(orden);
-        evento(saved, "SOLTADO", anteriorRepartidor, actor, null);
-        auditoriaService.log(actor, "SOLTAR_ENTREGA", "Orden", saved.getId(), anterior, null, null);
+        evento(saved, "SOLTADO", anteriorRepartidor, actor, m);
+        auditoriaService.log(actor, "SOLTAR_ENTREGA", "Orden", saved.getId(), anterior, null, m);
         return saved;
     }
 
     /**
-     * Marca el envío como entregado. Si queda saldo, lo cobra primero (efectivo o
-     * transferencia) en el corte de caja del repartidor — exige que lo tenga abierto, como
-     * cualquier cobro. Al terminar, los platillos quedan ENTREGADO y la orden PAGADA.
+     * El repartidor entrega el pedido. NO maneja caja: si falta pagar, solo deja dicho cómo pagó
+     * el cliente (efectivo, con cuánto, o transferencia) y el pedido queda "por recibir en caja"
+     * a su nombre; la caja lo cobra en su propio corte cuando él le entrega el dinero
+     * ({@link #recibirDinero}). Los platillos quedan ENTREGADO.
      */
     @Transactional
     public Orden entregar(Long ordenId, EntregaRequest req, User actor) {
@@ -131,24 +140,45 @@ public class DeliveryService {
                 && !tenantScope.isAdminLevel(actor)) {
             throw new IllegalStateException("Este pedido lo lleva " + orden.getRepartidor().getName());
         }
-        // Primero "Voy en camino" (el cliente de la web debe ver esa etapa antes de "Entregado";
-        // mismo flujo para los envíos capturados en caja, para que el repartidor trabaje igual).
+        // Primero "Voy en camino" (el cliente de la web debe ver esa etapa antes de "Entregado").
         if (orden.getEnCaminoAt() == null) {
             throw new IllegalStateException("Marca \"Voy en camino\" antes de entregar");
         }
 
+        String detalle = "Ya estaba pagado";
         if (orden.getEstado() != OrdenEstado.PAGADA) {
             PaymentMethod metodo = req.getMetodo();
             if (metodo != PaymentMethod.CASH && metodo != PaymentMethod.TRANSFER) {
                 throw new IllegalArgumentException("Elige cómo pagó el cliente: efectivo o transferencia");
             }
-            cobrar(orden, metodo, req, actor);
+            BigDecimal saldo = saldoPendiente(orden, actor);
+            if (metodo == PaymentMethod.CASH) {
+                if (req.getRecibido() == null || req.getRecibido().compareTo(saldo) < 0) {
+                    throw new IllegalArgumentException("Captura con cuánto pagó el cliente (mínimo " + saldo + ")");
+                }
+                orden.setMetodoPago("EFECTIVO");
+                orden.setPagaCon(req.getRecibido());
+                detalle = "Cobró " + saldo + " en efectivo (recibió " + req.getRecibido() + ")";
+            } else {
+                BigDecimal envioCash = envioEnEfectivo(orden, saldo);
+                if ("WEB".equals(orden.getOrigen()) && orden.getComprobantePath() == null) {
+                    throw new IllegalStateException("El cliente todavía no sube el comprobante de su transferencia; cóbrale en efectivo o espera a que lo suba");
+                }
+                if (envioCash.signum() > 0 && (req.getRecibido() == null || req.getRecibido().compareTo(envioCash) < 0)) {
+                    throw new IllegalArgumentException("Cobra el envío en efectivo (" + envioCash + "): captura con cuánto pagó el cliente");
+                }
+                orden.setMetodoPago("TRANSFERENCIA");
+                if (envioCash.signum() > 0) orden.setPagaCon(req.getRecibido());
+                String ref = req.getReferencia() != null && !req.getReferencia().isBlank() ? " · folio " + req.getReferencia().trim() : "";
+                detalle = "Pagó por transferencia" + ref + (envioCash.signum() > 0 ? " y el envío en efectivo" : "");
+            }
+            if (detalle.length() > 100) detalle = detalle.substring(0, 100);
+            ordenRepository.save(orden);
         }
 
-        // Releer: el cobro pasa por otros servicios que guardan la orden por su cuenta.
-        orden = ordenService.findById(ordenId, actor);
         for (OrdenDetalle item : orden.getItems()) {
-            if (item.getEstado() != OrdenDetalleEstado.CANCELADO && item.getEstado() != OrdenDetalleEstado.ENTREGADO) {
+            if (item.getEstado() != OrdenDetalleEstado.CANCELADO && item.getEstado() != OrdenDetalleEstado.ENTREGADO
+                    && !Boolean.TRUE.equals(item.getCargoExtra())) {
                 ordenService.actualizarEstadoItem(orden.getId(), item.getId(), OrdenDetalleEstado.ENTREGADO, actor);
             }
         }
@@ -159,15 +189,52 @@ public class DeliveryService {
         }
         orden.setEntregadaAt(LocalDateTime.now());
         Orden saved = ordenRepository.save(orden);
-        evento(saved, "ENTREGADO", saved.getRepartidor(), actor, req.getMetodo() != null
-                ? (req.getMetodo() == PaymentMethod.CASH ? "Cobró en efectivo" : "Cobró por transferencia") : "Ya estaba pagado");
+        evento(saved, "ENTREGADO", saved.getRepartidor(), actor, detalle);
         auditoriaService.log(actor, "ENTREGAR_PEDIDO", "Orden", saved.getId(), null,
                 req.getMetodo() != null ? req.getMetodo().name() : "YA_PAGADO", null);
         return saved;
     }
 
-    private void cobrar(Orden orden, PaymentMethod metodo, EntregaRequest req, User actor) {
-        // Lo que todavía no está en ninguna cuenta se factura en una cuenta TOTAL.
+    /** Lo que falta pagar de la orden: lo no facturado más el saldo de sus cuentas pendientes. */
+    private BigDecimal saldoPendiente(Orden orden, User actor) {
+        BigDecimal sinFacturar = orden.getItems().stream()
+                .filter(i -> i.getEstado() != OrdenDetalleEstado.CANCELADO)
+                .map(i -> i.getSubtotal().divide(i.getCantidad(), 2, java.math.RoundingMode.HALF_UP)
+                        .multiply(i.getCantidad().subtract(i.getCantidadFacturada())))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal enCuentas = cuentaService.findAllByOrden(orden.getId(), actor).stream()
+                .filter(c -> c.getEstado() == CuentaEstado.PENDIENTE)
+                .map(c -> c.getTotal().subtract(c.getTotalPagado()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        return sinFacturar.add(enCuentas).setScale(2, java.math.RoundingMode.HALF_UP);
+    }
+
+    /** Transferencia web que el cliente dijo que NO incluye el envío: el envío se paga en efectivo. */
+    private static BigDecimal envioEnEfectivo(Orden orden, BigDecimal saldo) {
+        return "WEB".equals(orden.getOrigen()) && orden.getComprobantePath() != null
+                && Boolean.FALSE.equals(orden.getTransferenciaIncluyeEnvio())
+                ? OrdenService.costoEnvio(orden).min(saldo) : BigDecimal.ZERO;
+    }
+
+    /** Envíos entregados que la caja todavía no cobra (el dinero lo trae el repartidor). */
+    public List<Orden> porRecibir(User actor) {
+        return ordenRepository.findEntregadosPorCobrar(tenantScope.scopeId(actor));
+    }
+
+    /**
+     * La caja recibe del repartidor el dinero de un envío entregado: lo cobra en SU corte de
+     * caja (como cualquier cobro, exige que lo tenga abierto) con la forma en que pagó el
+     * cliente, y la orden queda pagada.
+     */
+    @Transactional
+    public Orden recibirDinero(Long ordenId, User actor) {
+        Orden orden = ordenService.findById(ordenId, actor);
+        if (!"DOMICILIO".equals(orden.getTipoEntrega()) || orden.getEntregadaAt() == null) {
+            throw new IllegalStateException("Este pedido no es un envío entregado");
+        }
+        if (orden.getEstado() == OrdenEstado.PAGADA) throw new IllegalStateException("Este pedido ya está cobrado");
+        if (orden.getEstado() == OrdenEstado.CANCELADA) throw new IllegalStateException("Este pedido fue cancelado");
+
         boolean faltaFacturar = orden.getItems().stream()
                 .anyMatch(i -> i.getEstado() != OrdenDetalleEstado.CANCELADO
                         && i.getCantidadFacturada().compareTo(i.getCantidad()) < 0);
@@ -176,56 +243,38 @@ public class DeliveryService {
             cr.setTipo(CuentaTipo.TOTAL);
             cuentaService.crear(orden.getId(), cr, actor);
         }
-
         List<Cuenta> pendientes = cuentaService.findAllByOrden(orden.getId(), actor).stream()
-                .filter(c -> c.getEstado() == CuentaEstado.PENDIENTE)
-                .toList();
+                .filter(c -> c.getEstado() == CuentaEstado.PENDIENTE).toList();
         BigDecimal saldo = pendientes.stream()
                 .map(c -> c.getTotal().subtract(c.getTotalPagado()))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-        // Igual que el cobro en caja: en efectivo hay que capturar con cuánto pagó (para el cambio).
-        if (metodo == PaymentMethod.CASH && req.getRecibido() == null) {
-            throw new IllegalArgumentException("Captura con cuánto pagó el cliente en efectivo");
-        }
-        if (metodo == PaymentMethod.CASH && req.getRecibido().compareTo(saldo) < 0) {
-            throw new IllegalArgumentException("El efectivo recibido es menor al total a cobrar (" + saldo + ")");
-        }
+        String repartidor = orden.getRepartidor() != null ? orden.getRepartidor().getName() : "repartidor";
 
-        if (metodo == PaymentMethod.CASH) {
-            pagarCuentas(pendientes, PaymentMethod.CASH, saldo, req.getRecibido(), null, actor);
-            return;
-        }
-
-        // Pedido capturado en caja: el cliente no tiene seguimiento web para subir comprobante,
-        // el repartidor lo confirma en su celular como antes.
-        if (!"WEB".equals(orden.getOrigen())) {
-            pagarCuentas(pendientes, PaymentMethod.TRANSFER, saldo, null, req.getReferencia(), actor);
-            return;
-        }
-
-        // Pedido web: el cliente comprueba la transferencia subiendo la foto desde su
-        // seguimiento. Si dijo que NO incluye el envío, se registra por transferencia el saldo
-        // sin el envío y el envío lo cobra el repartidor en efectivo.
-        if (orden.getComprobantePath() == null) {
-            throw new IllegalStateException("El cliente todavía no sube el comprobante de su transferencia; cóbrale en efectivo o espera a que lo suba");
-        }
-        BigDecimal envioEnEfectivo = Boolean.FALSE.equals(orden.getTransferenciaIncluyeEnvio())
-                ? OrdenService.costoEnvio(orden).min(saldo) : BigDecimal.ZERO;
-        if (envioEnEfectivo.signum() > 0) {
-            if (req.getRecibido() == null || req.getRecibido().compareTo(envioEnEfectivo) < 0) {
-                throw new IllegalArgumentException("Cobra el envío en efectivo (" + envioEnEfectivo + "): captura con cuánto pagó el cliente");
+        if ("TRANSFERENCIA".equals(orden.getMetodoPago())) {
+            BigDecimal envioCash = envioEnEfectivo(orden, saldo);
+            String ref = ("Entregado por " + repartidor + ("WEB".equals(orden.getOrigen()) ? " · comprobante web" : ""));
+            pagarCuentas(pendientes, PaymentMethod.TRANSFER, saldo.subtract(envioCash), null, ref.length() > 100 ? ref.substring(0, 100) : ref, actor);
+            if (envioCash.signum() > 0) {
+                List<Cuenta> conSaldo = cuentaService.findAllByOrden(orden.getId(), actor).stream()
+                        .filter(c -> c.getEstado() == CuentaEstado.PENDIENTE).toList();
+                BigDecimal recibido = orden.getPagaCon() != null && orden.getPagaCon().compareTo(envioCash) >= 0 ? orden.getPagaCon() : envioCash;
+                pagarCuentas(conSaldo, PaymentMethod.CASH, envioCash, recibido, null, actor);
             }
+        } else {
+            BigDecimal recibido = orden.getPagaCon() != null && orden.getPagaCon().compareTo(saldo) >= 0 ? orden.getPagaCon() : saldo;
+            pagarCuentas(pendientes, PaymentMethod.CASH, saldo, recibido, "Entregado por " + repartidor, actor);
         }
-        String referencia = "Comprobante web " + orden.getComprobantePath();
-        pagarCuentas(pendientes, PaymentMethod.TRANSFER, saldo.subtract(envioEnEfectivo), null,
-                referencia.length() > 100 ? referencia.substring(0, 100) : referencia, actor);
-        if (envioEnEfectivo.signum() > 0) {
-            // Releer: los pagos anteriores ya actualizaron lo pagado de cada cuenta.
-            List<Cuenta> conSaldo = cuentaService.findAllByOrden(orden.getId(), actor).stream()
-                    .filter(c -> c.getEstado() == CuentaEstado.PENDIENTE)
-                    .toList();
-            pagarCuentas(conSaldo, PaymentMethod.CASH, envioEnEfectivo, req.getRecibido(), null, actor);
-        }
+        Orden saved = ordenService.findById(ordenId, actor);
+        evento(saved, "RECIBIDO_CAJA", saved.getRepartidor(), actor, "Recibió " + actor.getName());
+        auditoriaService.log(actor, "RECIBIR_DINERO_ENVIO", "Orden", saved.getId(), repartidor, actor.getName(), null);
+        return saved;
+    }
+
+    /** Historial del repartidor: sus envíos entregados entre {@code desde} y {@code hasta} (inclusive). */
+    public List<Orden> historial(User actor, java.time.LocalDate desde, java.time.LocalDate hasta) {
+        java.time.LocalDate h = hasta != null ? hasta : java.time.LocalDate.now();
+        java.time.LocalDate d = desde != null ? desde : h.minusDays(6);
+        return ordenRepository.findHistorialRepartidor(actor.getId(), d.atStartOfDay(), h.plusDays(1).atStartOfDay());
     }
 
     /**

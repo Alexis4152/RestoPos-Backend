@@ -76,10 +76,10 @@ public class RoleDataInitializer implements CommandLineRunner {
     private void seedDefaultRoles() {
         if (roleRepository.count() > 0) return;
 
-        // CASH_CUTS incluido a propósito: registrar un pago (PagoController#registrar) exige
-        // esa sección porque quien cobra debe tener su propio corte de caja abierto — sin
-        // ella, un MESERO nunca puede cobrar una cuenta aunque la vea en el detalle de la orden.
-        Set<AppSection> meseroSections = EnumSet.of(AppSection.DASHBOARD, AppSection.TABLES, AppSection.ORDERS, AppSection.CASH_CUTS);
+        // Sin CASH_CUTS a propósito: registrar un pago (PagoController#registrar) exige esa
+        // sección, y el mesero no cobra — genera e imprime la cuenta y el cliente paga en caja
+        // (rol CAJERO). Si en una tienda chica el mesero sí cobra, el admin le agrega la sección.
+        Set<AppSection> meseroSections = EnumSet.of(AppSection.DASHBOARD, AppSection.TABLES, AppSection.ORDERS);
 
         // global, sin tienda: usuario de plataforma con visibilidad de todas las tiendas
         Role superAdmin = Role.builder()

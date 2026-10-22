@@ -44,6 +44,12 @@ public class Mesa {
     @Builder.Default
     private MesaEstado estado = MesaEstado.DISPONIBLE;
 
+    // Se puede asignar a reservaciones. Solo cuenta si la tienda eligió "solo algunas mesas"
+    // (TiendaInfo.reservaTodasMesas = false); con "todas", cualquier mesa activa se reserva.
+    @Column(nullable = false, columnDefinition = "boolean default true")
+    @Builder.Default
+    private Boolean reservable = true;
+
     // trimmed a propósito ("mesa"): Orden.mesa apunta de vuelta a esta misma fila, y sin este
     // corte Jackson entraría en ciclo infinito Mesa->ordenActiva->mesa->ordenActiva->...
     @JsonIgnoreProperties({"mesa", "items", "comensales"})

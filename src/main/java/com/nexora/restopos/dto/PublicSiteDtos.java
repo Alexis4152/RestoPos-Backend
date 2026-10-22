@@ -38,7 +38,9 @@ public final class PublicSiteDtos {
 
     public record Grupo(Long id, String nombre, String tipo, boolean obligatorio, List<Opcion> opciones) {}
 
-    public record Producto(Long id, String nombre, String descripcion, BigDecimal precio, String imageUrl, List<Grupo> grupos) {}
+    /** {@code sinInventario}: lleva inventario y se acabó; se muestra "No disponible" y no se puede pedir. */
+    public record Producto(Long id, String nombre, String descripcion, BigDecimal precio, String imageUrl, List<Grupo> grupos,
+                           boolean sinInventario) {}
 
     public record Categoria(Long id, String nombre, String descripcion, List<Producto> productos) {}
 
@@ -68,7 +70,8 @@ public final class PublicSiteDtos {
     public record RepetirPedido(List<LineaCarrito> lineas, List<String> noDisponibles, List<String> cambiaron) {}
 
     /** Perfil del cliente registrado (sin contraseña). */
-    public record ClientePerfil(Long id, String nombre, String telefono, String direccion, String email, boolean emailVerificado) {}
+    public record ClientePerfil(Long id, String nombre, String telefono, String direccion, String email, boolean emailVerificado,
+                                String calle, String colonia, String codigoPostal) {}
 
     /** Respuesta de registro/login de cliente: el código de sesión va en el header X-Cliente-Token. */
     public record ClienteSesion(String token, ClientePerfil cliente) {}

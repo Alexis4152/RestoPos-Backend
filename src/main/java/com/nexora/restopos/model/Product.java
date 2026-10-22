@@ -63,6 +63,24 @@ public class Product {
     @Column(length = 255)
     private String imageUrl;
 
+    /**
+     * Si el producto lleva inventario (ej. refrescos, cervezas): solo estos aparecen en
+     * Inventario, en las alertas de stock bajo y en "buscar en tiendas asociadas", y solo a
+     * estos se les puede ajustar stock. Un platillo preparado normalmente no lo lleva.
+     */
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    @Builder.Default
+    private Boolean controlaInventario = false;
+
+    /**
+     * Lleva inventario y no le queda stock: no se puede vender (InventarioVentaService). En el
+     * POS se muestra "Sin inventario"; en la página web, "No disponible". Calculado, no se guarda.
+     */
+    @com.fasterxml.jackson.annotation.JsonProperty("sinInventario")
+    public boolean isSinInventario() {
+        return Boolean.TRUE.equals(controlaInventario) && stock != null && stock <= 0;
+    }
+
     /** Disponibilidad temporal (ej. "se acabó por hoy"), distinta de {@code isActive} (baja permanente). */
     @Column(nullable = false, columnDefinition = "boolean default true")
     @Builder.Default

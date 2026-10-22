@@ -10,8 +10,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Las tiendas creadas antes de que existiera el rol REPARTIDOR no lo tienen (las nuevas lo
- * reciben en RoleService#seedDefaultRolesForTienda). Idempotente: corre en cada arranque,
+ * Las tiendas creadas antes de que existieran los roles REPARTIDOR y CAJERO no los tienen (las
+ * nuevas los reciben en RoleService#seedDefaultRolesForTienda). Idempotente: corre en cada arranque,
  * después de que RoleDataInitializer ya ajustó el CHECK de secciones para incluir DELIVERY.
  */
 @Component
@@ -26,7 +26,9 @@ public class RepartidorRoleBackfill implements CommandLineRunner {
     @Transactional
     public void run(String... args) {
         for (Tienda t : tiendaRepository.findAllByOrderByNameAsc()) {
-            if (Boolean.TRUE.equals(t.getIsActive())) roleService.ensureRepartidorRole(t);
+            if (!Boolean.TRUE.equals(t.getIsActive())) continue;
+            roleService.ensureRepartidorRole(t);
+            roleService.ensureCajeroRole(t);
         }
     }
 }

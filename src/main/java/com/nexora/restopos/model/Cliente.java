@@ -37,6 +37,16 @@ public class Cliente {
     @Column(nullable = false, length = 200)
     private String direccion;
 
+    // Dirección en partes (ver util.Direccion). "direccion" guarda la dirección completa armada.
+    @Column(length = 100)
+    private String calle;
+
+    @Column(length = 70)
+    private String colonia;
+
+    @Column(name = "codigo_postal", length = 10)
+    private String codigoPostal;
+
     // Siempre en minúsculas (ver ClienteService), así la unicidad no depende de mayúsculas.
     @Column(nullable = false, length = 150)
     private String email;

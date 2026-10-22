@@ -69,6 +69,16 @@ public class Orden {
     @Column(length = 200)
     private String direccion;
 
+    // Dirección en partes (ver util.Direccion). "direccion" guarda la dirección completa armada.
+    @Column(length = 100)
+    private String calle;
+
+    @Column(length = 70)
+    private String colonia;
+
+    @Column(name = "codigo_postal", length = 10)
+    private String codigoPostal;
+
     // Obligatorios para una orden para llevar (mesa == null), ver OrdenService#abrir: a quién
     // se le entrega y cómo contactarlo. Null en órdenes de mesa.
     @Column(length = 100)
@@ -92,6 +102,11 @@ public class Orden {
     // y si es para recoger o a domicilio (RECOGER/DOMICILIO). Informativo para el personal.
     @Column(length = 20)
     private String metodoPago;
+
+    // Pedido web en efectivo: con cuánto dijo el cliente que paga (billete). El cambio a
+    // llevar es pagaCon - total. null = no lo indicó o no es efectivo.
+    @Column(precision = 12, scale = 2)
+    private BigDecimal pagaCon;
 
     // Sin mesa: PARA_LLEVAR / COMER_AQUI / RECOGER / DOMICILIO (los de la web solo RECOGER o
     // DOMICILIO). Ver OrdenService#abrir y #etiquetaTipoEntrega.

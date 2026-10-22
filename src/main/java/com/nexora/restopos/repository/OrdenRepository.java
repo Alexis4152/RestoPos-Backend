@@ -22,11 +22,16 @@ public interface OrdenRepository extends JpaRepository<Orden, Long> {
      * desde el service (nunca {@code null}), igual que en el resto de los repositorios con
      * filtro de fecha.
      */
-    @Query("SELECT o FROM Orden o WHERE " +
+    // Las que esperan pago van primero (la caja cobra desde aquí con el ticket del cliente).
+    @Query(value = "SELECT o FROM Orden o WHERE " +
            "(:tiendaId IS NULL OR o.tienda.id = :tiendaId) " +
            "AND o.openedAt BETWEEN :from AND :to " +
            "AND (:estado IS NULL OR o.estado = :estado) " +
-           "ORDER BY o.openedAt DESC")
+           "ORDER BY CASE WHEN o.estado = com.nexora.restopos.model.OrdenEstado.PENDIENTE_PAGO THEN 0 ELSE 1 END, o.openedAt DESC",
+           countQuery = "SELECT COUNT(o) FROM Orden o WHERE " +
+           "(:tiendaId IS NULL OR o.tienda.id = :tiendaId) " +
+           "AND o.openedAt BETWEEN :from AND :to " +
+           "AND (:estado IS NULL OR o.estado = :estado)")
     Page<Orden> search(@Param("tiendaId") Long tiendaId,
                         @Param("from") LocalDateTime from,
                         @Param("to") LocalDateTime to,
@@ -54,6 +59,7 @@ public interface OrdenRepository extends JpaRepository<Orden, Long> {
            "(:tiendaId IS NULL OR o.tienda.id = :tiendaId) " +
            "AND o.mesa IS NULL " +
            "AND o.estado NOT IN (com.nexora.restopos.model.OrdenEstado.PAGADA, com.nexora.restopos.model.OrdenEstado.CANCELADA) " +
+           "AND (o.tipoEntrega IS NULL OR o.tipoEntrega <> 'RESERVACION') " +
            "ORDER BY o.openedAt ASC")
     List<Orden> findActiveTakeaway(@Param("tiendaId") Long tiendaId);
 
@@ -128,6 +134,8 @@ public interface OrdenRepository extends JpaRepository<Orden, Long> {
            "(:tiendaId IS NULL OR o.tienda.id = :tiendaId) " +
            "AND o.pendienteAceptar = true " +
            "AND o.estado <> com.nexora.restopos.model.OrdenEstado.CANCELADA " +
+           // Los pedidos anticipados de reservaciones esperan a que lleguen (no se aceptan aquí).
+           "AND (o.tipoEntrega IS NULL OR o.tipoEntrega <> 'RESERVACION') " +
            "ORDER BY o.openedAt ASC")
     List<Orden> findPedidosWebPorAceptar(@Param("tiendaId") Long tiendaId);
 
@@ -140,4 +148,26 @@ public interface OrdenRepository extends JpaRepository<Orden, Long> {
     @Query("SELECT o FROM Orden o WHERE (:tiendaId IS NULL OR o.tienda.id = :tiendaId) AND o.entregadaAt >= :desde " +
            "ORDER BY o.entregadaAt DESC")
     List<Orden> findEntregadosDesde(@Param("tiendaId") Long tiendaId, @Param("desde") java.time.LocalDateTime desde);
+
+    /** Envíos a domicilio entregados que la caja todavía no cobra (el dinero lo trae el repartidor). */
+    @Query("SELECT o FROM Orden o WHERE (:tiendaId IS NULL OR o.tienda.id = :tiendaId) AND o.tipoEntrega = 'DOMICILIO' " +
+           "AND o.entregadaAt IS NOT NULL AND o.estado <> com.nexora.restopos.model.OrdenEstado.PAGADA " +
+           "AND o.estado <> com.nexora.restopos.model.OrdenEstado.CANCELADA ORDER BY o.entregadaAt ASC")
+    List<Orden> findEntregadosPorCobrar(@Param("tiendaId") Long tiendaId);
+
+    /** Historial de un repartidor: lo que entregó en el rango (más reciente primero). */
+    @Query("SELECT o FROM Orden o WHERE o.repartidor.id = :repartidorId AND o.entregadaAt >= :desde AND o.entregadaAt < :hasta " +
+           "ORDER BY o.entregadaAt DESC")
+    List<Orden> findHistorialRepartidor(@Param("repartidorId") Long repartidorId,
+                                        @Param("desde") java.time.LocalDateTime desde, @Param("hasta") java.time.LocalDateTime hasta);
+
+    /** Envíos que un repartidor tomó desde {@code desde} (centro de notificaciones). */
+    @Query("SELECT o FROM Orden o WHERE (:tiendaId IS NULL OR o.tienda.id = :tiendaId) AND o.tomadaAt >= :desde " +
+           "ORDER BY o.tomadaAt DESC")
+    List<Orden> findTomadosDesde(@Param("tiendaId") Long tiendaId, @Param("desde") java.time.LocalDateTime desde);
+
+    /** Envíos que salieron en camino desde {@code desde} (centro de notificaciones). */
+    @Query("SELECT o FROM Orden o WHERE (:tiendaId IS NULL OR o.tienda.id = :tiendaId) AND o.enCaminoAt >= :desde " +
+           "ORDER BY o.enCaminoAt DESC")
+    List<Orden> findEnCaminoDesde(@Param("tiendaId") Long tiendaId, @Param("desde") java.time.LocalDateTime desde);
 }

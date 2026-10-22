@@ -179,6 +179,10 @@ public class TiendaInfoService {
         if (req.getReservaDiasMax() != null) info.setReservaDiasMax(req.getReservaDiasMax());
         info.setReservaHoraInicio(req.getReservaHoraInicio());
         info.setReservaHoraFin(req.getReservaHoraFin());
+        if (req.getReservaTodasMesas() != null) info.setReservaTodasMesas(req.getReservaTodasMesas());
+        if (req.getReservaCambiosHoras() != null) info.setReservaCambiosHoras(req.getReservaCambiosHoras());
+        if (req.getReservaRetrasoEnabled() != null) info.setReservaRetrasoEnabled(req.getReservaRetrasoEnabled());
+        if (req.getReservaRetrasoHoras() != null) info.setReservaRetrasoHoras(req.getReservaRetrasoHoras());
         return tiendaInfoRepository.save(info);
     }
 
