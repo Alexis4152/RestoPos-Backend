@@ -126,7 +126,7 @@ public class PublicController {
         if (cliente != null && !Boolean.TRUE.equals(cliente.getEmailVerificado())) {
             throw new IllegalStateException("Confirma tu correo para reservar con tu cuenta (revisa tu bandeja de entrada)");
         }
-        req.setMesaId(null); // la mesa la asigna el restaurante
+        // mesaId (opcional): la mesa que eligió en "Mesas"; queda por confirmar (ver crearWeb).
         var r = reservacionService.crearWeb(info, req, cliente);
         return ResponseEntity.ok(ApiResponse.ok(new ReservacionDtos.Creada(r.getId(), r.getToken()),
                 "¡Recibimos tu reservación! Te avisaremos cuando quede confirmada"));
@@ -180,6 +180,13 @@ public class PublicController {
                                                                                        @RequestHeader(value = CLIENTE_HEADER, required = false) String token) {
         Cliente c = clienteService.autenticar(publicSiteService.resolve(slug), token);
         return ResponseEntity.ok(ApiResponse.ok(reservacionService.delCliente(c)));
+    }
+
+    /** Opiniones de la tienda para cualquiera: las mejores primero, de 10 en 10. */
+    @GetMapping("/opiniones")
+    public ResponseEntity<ApiResponse<com.nexora.restopos.dto.OpinionDtos.OpinionesPublicas>> opinionesPublicas(
+            @PathVariable String slug, @RequestParam(defaultValue = "0") int pagina) {
+        return ResponseEntity.ok(ApiResponse.ok(opinionService.publicas(publicSiteService.resolve(slug), pagina, 10)));
     }
 
     // ── Opinión de una visita al restaurante (QR del ticket, sin cuenta) ─────────────────

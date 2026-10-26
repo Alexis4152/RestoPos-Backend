@@ -52,12 +52,13 @@ public interface OrdenRepository extends JpaRepository<Orden, Long> {
     List<Orden> findActiveForKitchen(@Param("tiendaId") Long tiendaId, @Param("mesaId") Long mesaId);
 
     /**
-     * Órdenes para llevar (sin mesa) activas — ni pagadas ni canceladas —, más antiguas
-     * primero, para el tablero del módulo "Para llevar".
+     * Órdenes para llevar activas — ni pagadas ni canceladas —, más antiguas primero, para el
+     * tablero del módulo "Para llevar": las que no tienen mesa y las de "Comer aquí" (se piden
+     * en caja y se les asigna mesa, así que salen también en Mesas).
      */
     @Query("SELECT o FROM Orden o WHERE " +
            "(:tiendaId IS NULL OR o.tienda.id = :tiendaId) " +
-           "AND o.mesa IS NULL " +
+           "AND (o.mesa IS NULL OR o.tipoEntrega = 'COMER_AQUI') " +
            "AND o.estado NOT IN (com.nexora.restopos.model.OrdenEstado.PAGADA, com.nexora.restopos.model.OrdenEstado.CANCELADA) " +
            "AND (o.tipoEntrega IS NULL OR o.tipoEntrega <> 'RESERVACION') " +
            "ORDER BY o.openedAt ASC")

@@ -45,7 +45,7 @@ public final class PublicSiteDtos {
     public record Categoria(Long id, String nombre, String descripcion, List<Producto> productos) {}
 
     /** Mesa vista desde afuera: solo número, capacidad y si está libre u ocupada. */
-    public record Mesa(String numero, Integer capacidad, String estado) {}
+    public record Mesa(Long id, String numero, Integer capacidad, String estado, boolean reservable) {}
 
     public record Zona(String nombre, int libres, int ocupadas, List<Mesa> mesas) {}
 

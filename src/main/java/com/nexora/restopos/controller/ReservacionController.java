@@ -79,6 +79,12 @@ public class ReservacionController {
         return ResponseEntity.ok(ApiResponse.ok(reservacionService.marcarLlegada(id, false, null, actor)));
     }
 
+    /** Lo que hicieron los clientes con sus reservaciones (últimas 24 h): campana de avisos. */
+    @GetMapping("/avisos")
+    public ResponseEntity<ApiResponse<List<ReservacionDtos.AvisoCambio>>> avisos(@AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(reservacionService.avisosDeClientes(actor)));
+    }
+
     /** Reglas de la tienda para la pantalla: mesas reservables y desde cuándo se marca la llegada. */
     @GetMapping("/reglas")
     public ResponseEntity<ApiResponse<ReservacionDtos.Reglas>> reglas(@AuthenticationPrincipal User actor) {

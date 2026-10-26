@@ -32,6 +32,24 @@ public class MesaService {
         return mesaRepository.findAllForTienda(tenantScope.scopeId(actor));
     }
 
+    /**
+     * Marca como reservables EXACTAMENTE las mesas de {@code mesaIds} (las demás de la tienda
+     * quedan no reservables). Se usa desde Página web → Reservaciones, con la opción "solo
+     * algunas mesas".
+     */
+    @org.springframework.transaction.annotation.Transactional
+    public void setReservables(java.util.Collection<Long> mesaIds, User actor) {
+        java.util.Set<Long> ids = mesaIds == null ? java.util.Set.of() : new java.util.HashSet<>(mesaIds);
+        for (Mesa m : findAll(actor)) {
+            boolean reservable = ids.contains(m.getId());
+            if (!Boolean.valueOf(reservable).equals(m.getReservable())) {
+                m.setReservable(reservable);
+                m.setUpdatedBy(actor);
+                mesaRepository.save(m);
+            }
+        }
+    }
+
     public Mesa findById(Long id) {
         return mesaRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Mesa no encontrada: " + id));

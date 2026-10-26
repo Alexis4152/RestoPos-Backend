@@ -86,4 +86,12 @@ public final class OpinionDtos {
 
     /** Enlace + QR (PNG en base64) para que el cliente opine de una cuenta. */
     public record EnlaceQr(String url, String qrDataUrl) {}
+
+    /** Opinión como la ve cualquiera en la página web (sin datos personales: nombre y una inicial). */
+    public record OpinionPublica(int estrellas, String comentario, String nombre, LocalDateTime fecha, String origen,
+                                 List<String> leGusto) {}
+
+    /** Página de opiniones públicas: promedio, cuántas hay por estrella (5→1) y la página pedida. */
+    public record OpinionesPublicas(double promedio, long total, List<Long> porEstrellas, int pagina, int paginas,
+                                    List<OpinionPublica> opiniones) {}
 }

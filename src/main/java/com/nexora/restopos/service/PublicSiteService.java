@@ -133,6 +133,7 @@ public class PublicSiteService {
         if (!Boolean.TRUE.equals(info.getWebMostrarMesas())) return List.of();
         Long tiendaId = info.getTienda().getId();
 
+        boolean todas = !Boolean.FALSE.equals(info.getReservaTodasMesas());
         Map<Long, List<Mesa>> porZona = mesaRepository.findAllForTienda(tiendaId).stream()
                 .filter(m -> m.getZona() != null && m.getEstado() != MesaEstado.FUERA_DE_SERVICIO)
                 .collect(Collectors.groupingBy(m -> m.getZona().getId()));
@@ -143,7 +144,8 @@ public class PublicSiteService {
             if (mesas.isEmpty()) continue;
             List<PublicSiteDtos.Mesa> dtos = mesas.stream()
                     .sorted(Comparator.comparing((Mesa m) -> numeroOrden(m.getNumero())).thenComparing(Mesa::getNumero))
-                    .map(m -> new PublicSiteDtos.Mesa(m.getNumero(), m.getCapacidad(), estadoPublico(m.getEstado())))
+                    .map(m -> new PublicSiteDtos.Mesa(m.getId(), m.getNumero(), m.getCapacidad(), estadoPublico(m.getEstado()),
+                            todas || Boolean.TRUE.equals(m.getReservable())))
                     .toList();
             int libres = (int) dtos.stream().filter(m -> "LIBRE".equals(m.estado())).count();
             out.add(new PublicSiteDtos.Zona(z.getNombre(), libres, dtos.size() - libres, dtos));

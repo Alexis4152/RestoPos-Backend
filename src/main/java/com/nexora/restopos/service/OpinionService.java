@@ -226,6 +226,56 @@ public class OpinionService {
     }
 
     /**
+     * Opiniones para la página web: todas las de la tienda (mesa + reseñas de pedidos web), las
+     * mejores primero (5 estrellas) y luego las más recientes. Sin datos personales: solo el
+     * nombre con la inicial del apellido.
+     */
+    @Transactional(readOnly = true)
+    public OpinionDtos.OpinionesPublicas publicas(TiendaInfo info, int pagina, int porPagina) {
+        Long tiendaId = info.getTienda().getId();
+        LocalDateTime ini = LocalDate.of(2000, 1, 1).atStartOfDay();
+        LocalDateTime fin = LocalDateTime.now().plusDays(1);
+        List<OpinionDtos.OpinionPublica> todas = new ArrayList<>();
+        for (Opinion op : opinionRepository.buscar(tiendaId, ini, fin)) {
+            todas.add(new OpinionDtos.OpinionPublica(op.getEstrellas(), op.getComentario(),
+                    nombreCorto(op.getCliente() != null ? op.getCliente().getNombre() : null), op.getCreatedAt(), "En el restaurante",
+                    op.getPlatillos().stream().filter(p -> Boolean.TRUE.equals(p.getMeGusta())).map(OpinionPlatillo::getProductoNombre).toList()));
+        }
+        for (Orden o : ordenRepository.findConResenaEntre(tiendaId, ini, fin)) {
+            todas.add(new OpinionDtos.OpinionPublica(o.getResenaEstrellas(), o.getResenaComentario(), nombreCorto(o.getClienteNombre()),
+                    o.getResenaAt(), "DOMICILIO".equals(o.getTipoEntrega()) ? "Pedido a domicilio" : "Pedido para recoger", List.of()));
+        }
+        todas.sort(Comparator.comparingInt(OpinionDtos.OpinionPublica::estrellas).reversed()
+                .thenComparing(OpinionDtos.OpinionPublica::fecha, Comparator.nullsLast(Comparator.reverseOrder())));
+        List<Long> porEstrellas = new ArrayList<>();
+        for (int e = 5; e >= 1; e--) { final int x = e; porEstrellas.add(todas.stream().filter(o -> o.estrellas() == x).count()); }
+        double promedio = todas.stream().mapToInt(OpinionDtos.OpinionPublica::estrellas).average().orElse(0);
+        int paginas = Math.max(1, (int) Math.ceil(todas.size() / (double) porPagina));
+        int p = Math.max(0, Math.min(pagina, paginas - 1));
+        List<OpinionDtos.OpinionPublica> pag = todas.subList(Math.min(p * porPagina, todas.size()), Math.min((p + 1) * porPagina, todas.size()));
+        return new OpinionDtos.OpinionesPublicas(Math.round(promedio * 10) / 10.0, todas.size(), porEstrellas, p, paginas, new ArrayList<>(pag));
+    }
+
+    /** "Juan Pérez López" → "Juan P."; sin nombre → "Cliente". */
+    private static String nombreCorto(String nombre) {
+        if (nombre == null || nombre.isBlank()) return "Cliente";
+        String[] partes = nombre.trim().split("\\s+");
+        return partes.length == 1 ? partes[0] : partes[0] + " " + Character.toUpperCase(partes[1].charAt(0)) + ".";
+    }
+
+    /** QR (para descargar e imprimir) que abre las opiniones de la tienda en su página web. */
+    public OpinionDtos.EnlaceQr qrOpinionesPublicas(User actor) {
+        Long tiendaId = tenantScope.scopeId(actor);
+        TiendaInfo info = tiendaId == null ? null : tiendaInfoRepository.findByTiendaId(tiendaId).orElse(null);
+        if (info == null || info.getPublicSlug() == null || info.getPublicSlug().isBlank() || !Boolean.TRUE.equals(info.getWebEnabled())) {
+            throw new IllegalStateException("Activa la página web de la tienda (Configuración → Página web) para generar el QR de opiniones");
+        }
+        String base = frontendUrl.endsWith("/") ? frontendUrl.substring(0, frontendUrl.length() - 1) : frontendUrl;
+        String url = base + "/sitio/" + info.getPublicSlug() + "?ver=opiniones";
+        return new OpinionDtos.EnlaceQr(url, "data:image/png;base64," + Base64.getEncoder().encodeToString(qrPng(url, 720)));
+    }
+
+    /**
      * Pantalla "Opiniones": opiniones de mesa + reseñas de pedidos web del rango, con promedio
      * general, promedio de atención por mesero y los platillos con más 👍 / 👎.
      */

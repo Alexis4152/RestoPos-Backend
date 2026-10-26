@@ -37,7 +37,7 @@ public class PagoRequest {
     // cuenta todavía no tiene ningún pago registrado (ver PagoService#registrar): se decide
     // junto con el primer pago, en el modal de "Registrar pago", nunca después.
     @DecimalMin(value = "0", message = "El porcentaje de propina no puede ser negativo")
-    @DecimalMax(value = "100", message = "El porcentaje de propina no puede exceder 100")
+    @DecimalMax(value = "50", message = "La propina no puede pasar del 50%")
     private BigDecimal propinaPorcentaje;
 
     @DecimalMin(value = "0", message = "La propina no puede ser negativa")

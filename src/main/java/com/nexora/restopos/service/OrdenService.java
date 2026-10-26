@@ -394,6 +394,22 @@ public class OrdenService {
         return saved;
     }
 
+    /**
+     * Rechaza un pedido de la página web. Solo mientras siga por aceptar: si otra persona ya lo
+     * aceptó (p. ej. la caja y un mesero tocaron al mismo tiempo) se avisa y no se cancela.
+     * Para cancelar uno ya aceptado está "Cancelar orden" (#cancelar), con su motivo.
+     */
+    @Transactional
+    public void rechazarPedidoWeb(Long ordenId, String motivo, User actor) {
+        Orden orden = findById(ordenId, actor);
+        if (orden.getEstado() == OrdenEstado.CANCELADA) throw new IllegalStateException("Este pedido ya fue rechazado");
+        if (!Boolean.TRUE.equals(orden.getPendienteAceptar())) {
+            throw new IllegalStateException("Este pedido ya lo aceptó " + (orden.getMesero() != null ? orden.getMesero().getName() : "otra persona")
+                    + "; ya no se puede rechazar. Si de verdad no se puede atender, ábrelo y cancela la orden");
+        }
+        cancelar(ordenId, motivo, actor);
+    }
+
     private static final java.security.SecureRandom RANDOM = new java.security.SecureRandom();
 
     /** 32 bytes aleatorios en base64url (43 caracteres): imposible de adivinar por fuerza bruta. */
@@ -670,6 +686,10 @@ public class OrdenService {
                     // Clientes viejos que solo mandan "domicilio": se comportan como antes.
                     : (Boolean.TRUE.equals(req.getDomicilio()) ? "DOMICILIO" : "RECOGER");
             if (!TIPOS_POS.contains(tipo)) throw new IllegalArgumentException("Tipo de pedido no válido");
+        } else if ("COMER_AQUI".equalsIgnoreCase(req.getTipoEntrega() != null ? req.getTipoEntrega().trim() : "")) {
+            // "Comer aquí" desde Para llevar: el cliente pide en caja y se le asigna mesa. Es una
+            // orden de mesa normal; se conserva el tipo (y el nombre, si lo dieron) como referencia.
+            tipo = "COMER_AQUI";
         }
         boolean domicilio = "DOMICILIO".equals(tipo);
         BigDecimal costoEnvio = null;
@@ -698,7 +718,7 @@ public class OrdenService {
         // ninguna dirección, así que se ignora si llega junto con un mesaId.
         // La dirección solo se guarda a domicilio (en los demás tipos no se entrega a ningún lado).
         ponerDireccion(orden, dir);
-        orden.setClienteNombre(mesa == null ? clienteNombre : null);
+        orden.setClienteNombre(mesa == null || ("COMER_AQUI".equals(tipo) && !clienteNombre.isEmpty()) ? clienteNombre : null);
         orden.setClienteTelefono(mesa == null && !clienteTelefono.isEmpty() ? clienteTelefono : null);
         // DOMICILIO: aparece en la pantalla de Entregas para que un repartidor la lleve.
         orden.setTipoEntrega(tipo);

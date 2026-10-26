@@ -54,6 +54,11 @@ public class PagoService {
             } else {
                 propina = req.getPropinaMonto().setScale(2, RoundingMode.HALF_UP);
                 cuenta.setPropinaPorcentaje(null);
+                // Tope: la mitad de la cuenta (evita montos absurdos por un dedo de más).
+                BigDecimal maximo = subtotal.divide(BigDecimal.valueOf(2), 2, RoundingMode.DOWN);
+                if (propina.compareTo(maximo) > 0) {
+                    throw new IllegalArgumentException(String.format("La propina no puede pasar del 50%% de la cuenta ($%,.2f)", maximo));
+                }
             }
             cuenta.setPropina(propina);
             cuenta.setTotal(subtotal.add(propina));

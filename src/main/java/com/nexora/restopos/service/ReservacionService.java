@@ -105,6 +105,15 @@ public class ReservacionService {
             throw new IllegalArgumentException("Esa hora está fuera del horario de reservaciones");
         }
         String telefono = req.getTelefono().trim();
+        // Una por día por persona: para otra ese mismo día, que cancele la que tiene (o que
+        // termine su visita: una vez que llegó ya no cuenta como activa).
+        List<Reservacion> mismoDia = reservacionRepository.activasDelDia(tienda.getId(), ACTIVAS,
+                cuando.toLocalDate().atStartOfDay(), cuando.toLocalDate().plusDays(1).atStartOfDay(),
+                telefono, cliente != null ? cliente.getId() : null);
+        if (!mismoDia.isEmpty()) {
+            throw new IllegalStateException("Ya tienes una reservación ese día a las " + HORA.format(mismoDia.get(0).getFechaHora())
+                    + ". Para cambiar de horario, cancélala primero; o espera a terminar tu visita para hacer otra");
+        }
         if (reservacionRepository.contarActivasPorTelefono(tienda.getId(), telefono, ACTIVAS, ahora) >= MAX_ACTIVAS_POR_TELEFONO) {
             throw new IllegalStateException("Ya tienes " + MAX_ACTIVAS_POR_TELEFONO
                     + " reservaciones activas; cancela alguna o llámanos para hacer otra");
@@ -113,6 +122,12 @@ public class ReservacionService {
         Reservacion r = nueva(tienda, req, cuando);
         r.setCliente(cliente);
         r.setOrigen("WEB");
+        // La mesa que eligió en la página (queda solicitada; el restaurante la confirma o la cambia).
+        if (req.getMesaId() != null) {
+            Mesa mesa = mesaValida(r, req.getMesaId(), true);
+            r.setMesa(mesa);
+            if (mesa.getZona() != null) r.setZonaPreferida(mesa.getZona());
+        }
         r = reservacionRepository.save(r);
         avisar(r);
         return r;
@@ -133,6 +148,7 @@ public class ReservacionService {
         r.setEstado(ReservacionEstado.CANCELADA);
         r.setMotivo("Cancelada por el cliente");
         cancelarPreordenSiHay(r, "Reservación cancelada por el cliente", null);
+        cambioDelCliente(r, "Canceló su reservación");
         avisar(r);
         return toPublica(r);
     }
@@ -155,6 +171,7 @@ public class ReservacionService {
         }
         int periqueras = req.getPeriqueras() == null ? 0 : req.getPeriqueras();
         if (periqueras > req.getPersonas()) throw new IllegalArgumentException("Hay más periqueras que personas");
+        String resumen = resumenCambios(r, req, periqueras);
         r.setPersonas(req.getPersonas());
         r.setPeriqueras(periqueras);
         r.setAccesible(Boolean.TRUE.equals(req.getAccesible()));
@@ -165,10 +182,41 @@ public class ReservacionService {
         if (r.getEstado() == ReservacionEstado.CONFIRMADA && m != null && m.getCapacidad() != null && m.getCapacidad() < r.getPersonas()) {
             r.setMesa(null);
             r.setEstado(ReservacionEstado.PENDIENTE);
+            resumen += " (su mesa ya no alcanza: vuelve a confirmar)";
         }
-        r.setModificadaAt(LocalDateTime.now());
+        cambioDelCliente(r, resumen);
         avisar(r);
         return toPublica(r);
+    }
+
+    /** "Cambió de 2 a 4 personas · ahora pide mesa accesible" (lo que realmente cambió). */
+    private static String resumenCambios(Reservacion r, ReservacionDtos.Cambios req, int periqueras) {
+        List<String> partes = new java.util.ArrayList<>();
+        if (!r.getPersonas().equals(req.getPersonas())) partes.add("de " + r.getPersonas() + " a " + req.getPersonas() + " personas");
+        if (r.getPeriqueras() != periqueras) partes.add(periqueras + " periquera" + (periqueras == 1 ? "" : "s"));
+        if (Boolean.TRUE.equals(r.getAccesible()) != Boolean.TRUE.equals(req.getAccesible())) {
+            partes.add(Boolean.TRUE.equals(req.getAccesible()) ? "pide mesa accesible" : "ya no pide mesa accesible");
+        }
+        if (Boolean.TRUE.equals(r.getCarriola()) != Boolean.TRUE.equals(req.getCarriola())) {
+            partes.add(Boolean.TRUE.equals(req.getCarriola()) ? "lleva carriola" : "ya no lleva carriola");
+        }
+        if (!java.util.Objects.equals(textoOr(r.getOcasion(), null), textoOr(req.getOcasion(), null))) partes.add("cambió la ocasión");
+        if (!java.util.Objects.equals(textoOr(r.getNotas(), null), textoOr(req.getNotas(), null))) partes.add("cambió las indicaciones");
+        String txt = partes.isEmpty() ? "Revisó su reservación (sin cambios)" : "Cambió: " + String.join(", ", partes);
+        return txt.length() > 150 ? txt.substring(0, 147) + "..." : txt;
+    }
+
+    /** Registra lo que hizo el cliente (aviso para el personal). */
+    private static void cambioDelCliente(Reservacion r, String texto) {
+        r.setUltimoCambio(texto.length() > 150 ? texto.substring(0, 147) + "..." : texto);
+        r.setModificadaAt(LocalDateTime.now());
+    }
+
+    /** Avisos del personal: lo que hicieron los clientes con sus reservaciones (últimas 24 h). */
+    public List<ReservacionDtos.AvisoCambio> avisosDeClientes(User actor) {
+        return reservacionRepository.cambiosDeClientes(tenantScope.scopeId(actor), LocalDateTime.now().minusHours(24)).stream()
+                .map(r -> new ReservacionDtos.AvisoCambio(r.getId(), r.getNombre(), r.getFechaHora(), r.getUltimoCambio(), r.getModificadaAt()))
+                .toList();
     }
 
     /** "Llegaré un poco más tarde" (15/30/45/60 min; 0 lo quita), hasta {@code reservaRetrasoHoras} antes. */
@@ -185,7 +233,7 @@ public class ReservacionService {
         int m = minutos == null ? 0 : minutos;
         if (!RETRASOS.contains(m)) throw new IllegalArgumentException("Elige 15, 30, 45 o 60 minutos");
         r.setRetrasoMinutos(m == 0 ? null : m);
-        r.setModificadaAt(LocalDateTime.now());
+        cambioDelCliente(r, m == 0 ? "Ya llega a tiempo (quitó su aviso de retraso)" : "Avisó que llega " + m + " min tarde");
         avisar(r);
         return toPublica(r);
     }
@@ -199,7 +247,7 @@ public class ReservacionService {
         Reservacion r = buscarPorToken(info, token);
         if (!puedeOrdenar(r)) throw new IllegalStateException("Ya no se puede ordenar para esta reservación");
         r.setPreorden(ordenService.preordenReservacion(r, req.getItems(), req.getNotas()));
-        r.setModificadaAt(LocalDateTime.now());
+        cambioDelCliente(r, "Ordenó para su reservación (pedido anticipado $" + r.getPreorden().getTotal() + ")");
         avisar(r);
         return toPublica(r);
     }
@@ -210,7 +258,7 @@ public class ReservacionService {
         Reservacion r = buscarPorToken(info, token);
         if (!preordenEnEspera(r)) throw new IllegalStateException("Tu pedido ya no se puede cancelar desde aquí");
         ordenService.cancelarPreorden(r.getPreorden(), "Cancelado por el cliente", null);
-        r.setModificadaAt(LocalDateTime.now());
+        cambioDelCliente(r, "Canceló su pedido anticipado");
         avisar(r);
         return toPublica(r);
     }
@@ -374,10 +422,21 @@ public class ReservacionService {
 
     /** Mesa de la misma tienda, activa y sin otra reservación confirmada en esa ventana. */
     private Mesa mesaValida(Reservacion r, Long mesaId) {
+        return mesaValida(r, mesaId, false);
+    }
+
+    /** @param publico la pide un cliente desde la página web: el aviso de choque no dice de quién es la otra reservación. */
+    private Mesa mesaValida(Reservacion r, Long mesaId, boolean publico) {
         Mesa mesa = mesaRepository.findById(mesaId)
                 .filter(m -> Boolean.TRUE.equals(m.getIsActive()))
                 .filter(m -> m.getTienda() != null && m.getTienda().getId().equals(r.getTienda().getId()))
                 .orElseThrow(() -> new IllegalArgumentException("Mesa no encontrada"));
+        // El personal no puede dar una mesa más chica que el grupo (la página web solo lo advierte:
+        // el restaurante le asigna otra al confirmar).
+        if (!publico && mesa.getCapacidad() != null && mesa.getCapacidad() < r.getPersonas()) {
+            throw new IllegalStateException("La mesa " + mesa.getNumero() + " es para " + mesa.getCapacidad()
+                    + " personas y la reservación es de " + r.getPersonas() + ": elige una mesa más grande");
+        }
         boolean todas = tiendaInfoRepository.findByTiendaId(r.getTienda().getId())
                 .map(i -> !Boolean.FALSE.equals(i.getReservaTodasMesas())).orElse(true);
         if (!todas && !Boolean.TRUE.equals(mesa.getReservable())) {
@@ -387,6 +446,10 @@ public class ReservacionService {
                 r.getFechaHora().minusHours(DURACION_HORAS), r.getFechaHora().plusHours(DURACION_HORAS));
         if (!choques.isEmpty()) {
             Reservacion c = choques.get(0);
+            if (publico) {
+                throw new IllegalStateException("La mesa " + mesa.getNumero() + " ya está apartada cerca de esa hora ("
+                        + HORA.format(c.getFechaHora()) + "). Elige otra hora u otra mesa");
+            }
             throw new IllegalStateException("La mesa " + mesa.getNumero() + " ya está reservada a las "
                     + c.getFechaHora().toLocalTime() + " (" + c.getNombre() + ")");
         }
@@ -502,8 +565,8 @@ public class ReservacionService {
 
     private ReservacionDtos.Publica toPublica(Reservacion r) {
         TiendaInfo info = tiendaInfoRepository.findByTiendaId(r.getTienda().getId()).orElse(null);
-        // La mesa solo se le dice al cliente cuando ya está confirmada.
-        boolean conMesa = r.getMesa() != null && r.getEstado() == ReservacionEstado.CONFIRMADA;
+        // La mesa: la que pidió (por confirmar) o la que le asignaron (confirmada).
+        boolean conMesa = r.getMesa() != null && activa(r);
         return new ReservacionDtos.Publica(r.getId(), r.getToken(), r.getNombre(), r.getFechaHora(), r.getPersonas(),
                 r.getZonaPreferida() != null ? r.getZonaPreferida().getNombre() : null,
                 conMesa ? r.getMesa().getNumero() : null,
@@ -523,6 +586,6 @@ public class ReservacionService {
                 r.getPeriqueras(), Boolean.TRUE.equals(r.getAccesible()), Boolean.TRUE.equals(r.getCarriola()),
                 r.getOcasion(), r.getNotas(), r.getEstado().name(), r.getMotivo(), r.getOrigen(),
                 r.getAtendidaPor() != null ? r.getAtendidaPor().getName() : null, r.getCreatedAt(),
-                r.getRetrasoMinutos(), r.getModificadaAt(), llegadaDesde(r), resumenPreorden(r));
+                r.getRetrasoMinutos(), r.getModificadaAt(), r.getUltimoCambio(), llegadaDesde(r), resumenPreorden(r));
     }
 }

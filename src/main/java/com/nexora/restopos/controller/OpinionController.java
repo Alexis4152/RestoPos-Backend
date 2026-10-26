@@ -22,6 +22,12 @@ public class OpinionController {
 
     private final OpinionService opinionService;
 
+    /** QR para descargar: abre las opiniones de la tienda en su página web. */
+    @GetMapping("/qr-publico")
+    public ResponseEntity<ApiResponse<OpinionDtos.EnlaceQr>> qrPublico(@AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(opinionService.qrOpinionesPublicas(actor)));
+    }
+
     @GetMapping
     public ResponseEntity<ApiResponse<OpinionDtos.Resumen>> resumen(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,

@@ -47,6 +47,15 @@ public class MesaController {
         return ResponseEntity.ok(ApiResponse.ok(mesaService.update(id, req, actor), "Mesa actualizada"));
     }
 
+    /** Qué mesas se pueden reservar. Body: {"mesaIds": [1, 4, 7]} (las demás quedan sin reservar). */
+    @PutMapping("/reservables")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> reservables(@RequestBody java.util.Map<String, List<Long>> body,
+                                                         @AuthenticationPrincipal User actor) {
+        mesaService.setReservables(body == null ? List.of() : body.getOrDefault("mesaIds", List.of()), actor);
+        return ResponseEntity.ok(ApiResponse.ok(null, "Mesas para reservar actualizadas"));
+    }
+
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<Void>> deactivate(@PathVariable Long id, @AuthenticationPrincipal User actor) {

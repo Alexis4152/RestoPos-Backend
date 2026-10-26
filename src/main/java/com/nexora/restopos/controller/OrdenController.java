@@ -67,6 +67,14 @@ public class OrdenController {
     }
 
     /** Acepta un pedido web: queda a nombre de quien lo acepta y pasa a cocina. Rechazar = POST /{id}/cancel. */
+    /** Rechaza un pedido web que nadie ha aceptado. Body: {"motivo": "..."} (el cliente lo ve). */
+    @PostMapping("/{id}/rechazar")
+    public ResponseEntity<ApiResponse<Void>> rechazarPedidoWeb(@PathVariable Long id, @RequestBody(required = false) CancelRequest req,
+                                                                @AuthenticationPrincipal User actor) {
+        ordenService.rechazarPedidoWeb(id, req != null ? req.getMotivo() : null, actor);
+        return ResponseEntity.ok(ApiResponse.ok(null, "Pedido rechazado"));
+    }
+
     @PostMapping("/{id}/aceptar")
     public ResponseEntity<ApiResponse<Orden>> aceptarPedidoWeb(@PathVariable Long id, @AuthenticationPrincipal User actor) {
         return ResponseEntity.ok(ApiResponse.ok(ordenService.aceptarPedidoWeb(id, actor), "Pedido aceptado"));

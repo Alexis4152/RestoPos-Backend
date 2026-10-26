@@ -106,6 +106,11 @@ public class Reservacion {
     // destaca al personal).
     private LocalDateTime modificadaAt;
 
+    // Qué hizo el cliente la última vez (cambió personas, avisó retraso, ordenó, canceló...):
+    // es el texto del aviso que le llega al personal.
+    @Column(length = 150)
+    private String ultimoCambio;
+
     // Pedido anticipado desde la página web: espera (sin ir a cocina) hasta que el personal
     // marca "Llegó"; ahí se abre en la mesa y entra a cocina. Ver OrdenService#preordenReservacion.
     @com.fasterxml.jackson.annotation.JsonIgnore

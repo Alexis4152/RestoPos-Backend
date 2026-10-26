@@ -119,6 +119,9 @@ public final class ReservacionDtos {
     /** Pedido anticipado: EN_ESPERA (aún no llegan) o EN_COCINA (ya llegaron y se mandó). */
     public record PreordenResumen(Long ordenId, List<PreordenLinea> items, BigDecimal total, String estado) {}
 
+    /** Aviso para el personal: lo que hizo un cliente con su reservación. */
+    public record AvisoCambio(Long id, String nombre, LocalDateTime fechaHora, String cambio, LocalDateTime fecha) {}
+
     /** Reglas para la pantalla del personal. */
     public record Reglas(boolean todasLasMesas, int cambiosHoras, int llegadaMinutosAntes) {}
 
@@ -152,6 +155,6 @@ public final class ReservacionDtos {
                         Long mesaId, String mesa, Integer mesaCapacidad,
                         int periqueras, boolean accesible, boolean carriola, String ocasion, String notas,
                         String estado, String motivo, String origen, String atendidaPor, LocalDateTime createdAt,
-                        Integer retrasoMinutos, LocalDateTime modificadaAt, LocalDateTime llegadaDesde,
+                        Integer retrasoMinutos, LocalDateTime modificadaAt, String ultimoCambio, LocalDateTime llegadaDesde,
                         PreordenResumen preorden) {}
 }

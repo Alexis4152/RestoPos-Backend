@@ -35,10 +35,23 @@ public interface ReservacionRepository extends JpaRepository<Reservacion, Long> 
     long contarActivasPorTelefono(@Param("tiendaId") Long tiendaId, @Param("telefono") String telefono,
                                   @Param("estados") Collection<ReservacionEstado> estados, @Param("desde") LocalDateTime desde);
 
-    /** Confirmadas en esa mesa dentro de la ventana (para no asignar la misma mesa dos veces a la misma hora). */
+    /** Por confirmar o confirmadas en esa mesa dentro de la ventana (no dar la misma mesa dos veces a la misma hora). */
     @Query("SELECT r FROM Reservacion r WHERE r.mesa.id = :mesaId AND r.id <> :excluirId " +
-           "AND r.estado = com.nexora.restopos.model.ReservacionEstado.CONFIRMADA " +
+           "AND r.estado IN (com.nexora.restopos.model.ReservacionEstado.PENDIENTE, com.nexora.restopos.model.ReservacionEstado.CONFIRMADA) " +
            "AND r.fechaHora > :desde AND r.fechaHora < :hasta")
     List<Reservacion> choquesDeMesa(@Param("mesaId") Long mesaId, @Param("excluirId") Long excluirId,
                                     @Param("desde") LocalDateTime desde, @Param("hasta") LocalDateTime hasta);
+
+    /** Activa (por confirmar o confirmada) de la misma persona ese día: por teléfono o por su cuenta. */
+    @Query("SELECT r FROM Reservacion r WHERE r.tienda.id = :tiendaId AND r.estado IN :estados " +
+           "AND r.fechaHora >= :desde AND r.fechaHora < :hasta " +
+           "AND (r.telefono = :telefono OR (:clienteId IS NOT NULL AND r.cliente.id = :clienteId)) ORDER BY r.fechaHora ASC")
+    List<Reservacion> activasDelDia(@Param("tiendaId") Long tiendaId, @Param("estados") Collection<ReservacionEstado> estados,
+                                    @Param("desde") LocalDateTime desde, @Param("hasta") LocalDateTime hasta,
+                                    @Param("telefono") String telefono, @Param("clienteId") Long clienteId);
+
+    /** Lo que hicieron los clientes con sus reservaciones desde {@code desde} (avisos del personal). */
+    @Query("SELECT r FROM Reservacion r WHERE (:tiendaId IS NULL OR r.tienda.id = :tiendaId) " +
+           "AND r.ultimoCambio IS NOT NULL AND r.modificadaAt >= :desde ORDER BY r.modificadaAt DESC")
+    List<Reservacion> cambiosDeClientes(@Param("tiendaId") Long tiendaId, @Param("desde") LocalDateTime desde);
 }

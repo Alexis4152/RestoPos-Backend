@@ -319,8 +319,10 @@ public class ClienteService {
                 .filter(o -> o.getCliente() != null && o.getCliente().getId().equals(c.getId()))
                 .orElseThrow(() -> new IllegalArgumentException("Pedido no encontrado"));
         PublicPedidoStatus actual = ordenService.estadoParaCliente(orden);
+        boolean recoger = "RECOGER".equals(orden.getTipoEntrega());
         if (!"ENTREGADO".equals(actual.estado())) {
-            throw new IllegalStateException("Podrás reportar cómo llegó tu pedido cuando te lo entreguen");
+            throw new IllegalStateException(recoger ? "Podrás reportarlo cuando recojas tu pedido"
+                    : "Podrás reportar cómo llegó tu pedido cuando te lo entreguen");
         }
         if (orden.getReporteTipo() != null) throw new IllegalStateException("Ya reportaste este pedido");
         if (!actual.puedeReportar()) {
@@ -328,6 +330,8 @@ public class ClienteService {
         }
         String tipo = req.getTipo().trim().toUpperCase();
         if (!TIPOS_REPORTE.contains(tipo)) throw new IllegalArgumentException("Tipo de reporte no válido");
+        // Para recoger, el cliente lo revisó en el mostrador: solo se reporta si le faltó algo.
+        if (recoger && !"FALTANTE".equals(tipo)) throw new IllegalArgumentException("En pedidos para recoger solo se puede reportar que faltó algo");
 
         // Solo productos que de verdad vienen en este pedido (y no el cargo de envío).
         java.util.Set<Long> ids = req.getProductoIds() == null ? java.util.Set.of() : new java.util.HashSet<>(req.getProductoIds());
