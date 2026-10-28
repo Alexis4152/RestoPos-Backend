@@ -1,5 +1,7 @@
 package com.nexora.restopos.dto;
 
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
@@ -56,4 +58,9 @@ public class TiendaInfoRequest {
     // Modo de toma de orden por default de la tienda (Tienda.modoToma): RAPIDO o DETALLADO.
     // null = no se cambia.
     private String modoToma;
+
+    // Tope de propina en % del consumo (Tienda.propinaMaxPorcentaje). null = no se cambia.
+    @Min(value = 1, message = "El tope de propina debe ser de al menos 1%")
+    @Max(value = 100, message = "El tope de propina no puede pasar del 100%")
+    private Integer propinaMaxPorcentaje;
 }

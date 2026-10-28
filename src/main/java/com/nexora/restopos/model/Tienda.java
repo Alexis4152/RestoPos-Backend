@@ -94,6 +94,13 @@ public class Tienda {
     @Builder.Default
     private String modoToma = "DETALLADO";
 
+    // Tope de propina, en % del consumo (1–100): el cajero no puede registrar una propina
+    // mayor, ni en porcentaje ni en monto fijo (evita montos absurdos por un dedo de más).
+    // Lo ajusta el admin o supervisor en "Datos de la tienda"; 50 por default.
+    @Column(nullable = false, columnDefinition = "integer default 50")
+    @Builder.Default
+    private Integer propinaMaxPorcentaje = 50;
+
     // El supervisor (dueño) recibe el reporte de fin de día de cada caja por default; puede
     // desactivarlo si prefiere que solo les llegue a los destinatarios que configuró (ver
     // CashReportRecipient / CashReportRecipientService).

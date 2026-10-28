@@ -83,6 +83,9 @@ public class TiendaInfoService {
             }
             tienda.setModoToma(modo);
         }
+        if (req.getPropinaMaxPorcentaje() != null) {
+            tienda.setPropinaMaxPorcentaje(req.getPropinaMaxPorcentaje());
+        }
         tienda.setUpdatedBy(actor);
         tiendaRepository.save(tienda);
 

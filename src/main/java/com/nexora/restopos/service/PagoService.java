@@ -47,17 +47,23 @@ public class PagoService {
         if (cuenta.getTotalPagado().compareTo(BigDecimal.ZERO) == 0
                 && (req.getPropinaPorcentaje() != null || req.getPropinaMonto() != null)) {
             BigDecimal subtotal = cuenta.getTotal().subtract(cuenta.getPropina());
+            // Tope configurable por tienda ("Datos de la tienda"), 50% si no está definido.
+            Tienda tienda = cuenta.getOrden() != null ? cuenta.getOrden().getTienda() : null;
+            Integer tope = tienda != null ? tienda.getPropinaMaxPorcentaje() : null;
+            int topePct = tope != null ? tope : 50;
             BigDecimal propina;
             if (req.getPropinaPorcentaje() != null) {
+                if (req.getPropinaPorcentaje().compareTo(BigDecimal.valueOf(topePct)) > 0) {
+                    throw new IllegalArgumentException("La propina no puede pasar del " + topePct + "%");
+                }
                 propina = subtotal.multiply(req.getPropinaPorcentaje()).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
                 cuenta.setPropinaPorcentaje(req.getPropinaPorcentaje());
             } else {
                 propina = req.getPropinaMonto().setScale(2, RoundingMode.HALF_UP);
                 cuenta.setPropinaPorcentaje(null);
-                // Tope: la mitad de la cuenta (evita montos absurdos por un dedo de más).
-                BigDecimal maximo = subtotal.divide(BigDecimal.valueOf(2), 2, RoundingMode.DOWN);
+                BigDecimal maximo = subtotal.multiply(BigDecimal.valueOf(topePct)).divide(BigDecimal.valueOf(100), 2, RoundingMode.DOWN);
                 if (propina.compareTo(maximo) > 0) {
-                    throw new IllegalArgumentException(String.format("La propina no puede pasar del 50%% de la cuenta ($%,.2f)", maximo));
+                    throw new IllegalArgumentException(String.format("La propina no puede pasar del %d%% de la cuenta ($%,.2f)", topePct, maximo));
                 }
             }
             cuenta.setPropina(propina);
