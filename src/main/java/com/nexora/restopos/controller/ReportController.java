@@ -1,15 +1,25 @@
 package com.nexora.restopos.controller;
 
 import com.nexora.restopos.dto.ApiResponse;
+import com.nexora.restopos.dto.catalog.ReportCatalogDtos.ExportFile;
+import com.nexora.restopos.dto.catalog.ReportCatalogDtos.Filters;
+import com.nexora.restopos.dto.catalog.ReportCatalogDtos.Report;
+import com.nexora.restopos.dto.catalog.ReportCatalogDtos.ReportInfo;
 import com.nexora.restopos.model.User;
+import com.nexora.restopos.service.ReportCatalogExporter;
+import com.nexora.restopos.service.ReportCatalogService;
 import com.nexora.restopos.service.ReportService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +39,58 @@ import java.util.Map;
 public class ReportController {
 
     private final ReportService reportService;
+    private final ReportCatalogService reportCatalogService;
+    private final ReportCatalogExporter reportCatalogExporter;
+
+    /** Catálogo de reportes disponibles (título, grupo, filtros que acepta cada uno). */
+    @GetMapping("/catalog")
+    @PreAuthorize("@sectionAccess.check('REPORTS')")
+    public ResponseEntity<ApiResponse<List<ReportInfo>>> catalog() {
+        return ResponseEntity.ok(ApiResponse.ok(reportCatalogService.catalog(), null));
+    }
+
+    /**
+     * Genera uno de los reportes del catálogo (pantalla "Reportes"). El tipo debe ser uno de
+     * los listados por {@link #catalog()}; cualquier otro valor responde 400.
+     */
+    @GetMapping("/{type}")
+    @PreAuthorize("@sectionAccess.check('REPORTS')")
+    public ResponseEntity<ApiResponse<Report>> catalogReport(
+            @PathVariable String type,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String method,
+            @RequestParam(required = false) String movementType,
+            @RequestParam(required = false) String servicio,
+            @AuthenticationPrincipal User actor) {
+        Filters filters = new Filters(from, to, status, method, movementType, servicio);
+        return ResponseEntity.ok(ApiResponse.ok(reportCatalogService.report(type, filters, false, actor), null));
+    }
+
+    /** Exporta uno de los reportes del catálogo a CSV, Excel (xlsx) o PDF: lo mismo que se ve en pantalla. */
+    @GetMapping("/{type}/export")
+    @PreAuthorize("@sectionAccess.check('REPORTS')")
+    public ResponseEntity<byte[]> exportCatalogReport(
+            @PathVariable String type,
+            @RequestParam String format,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String method,
+            @RequestParam(required = false) String movementType,
+            @RequestParam(required = false) String servicio,
+            @AuthenticationPrincipal User actor) {
+        Filters filters = new Filters(from, to, status, method, movementType, servicio);
+        Report report = reportCatalogService.report(type, filters, true, actor);
+        ExportFile file = reportCatalogExporter.export(report, format);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                        .filename(file.filename(), StandardCharsets.UTF_8).build().toString())
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .contentType(MediaType.parseMediaType(file.contentType()))
+                .body(file.content());
+    }
 
     // usado también por el widget del Dashboard, por eso admite ambas secciones
     /**
