@@ -198,7 +198,7 @@ public class ReportCatalogService {
                 + "AND px.cancelado = false AND px.metodo = :method))";
 
         List<Map<String, Object>> rows = jdbc.query("SELECT c.id, c.ticket_folio, c.closed_at, o.id AS orden, " + SERVICIO_SQL
-                + " AS svc, o.origen, m.numero AS mesa, u.name AS mesero, c.total, c.propina, "
+                + " AS svc, o.origen, m.numero AS mesa, u.name AS mesero, c.total, c.propina, c.total_devuelto, "
                 + "(SELECT string_agg(DISTINCT px.metodo, ',') FROM pagos px WHERE px.cuenta_id = c.id AND px.cancelado = false) AS metodos"
                 + where.replaceFirst(" WHERE ", " LEFT JOIN mesas m ON m.id = o.mesa_id LEFT JOIN users u ON u.id = o.mesero_id WHERE ")
                 + " ORDER BY c.closed_at DESC LIMIT :limit", p, (rs, i) -> {
@@ -213,10 +213,11 @@ public class ReportCatalogService {
                     "metodos", metodos(rs.getString("metodos")),
                     "consumo", total.subtract(propina),
                     "propina", propina,
-                    "total", total);
+                    "total", total,
+                    "devuelto", nz(rs.getBigDecimal("total_devuelto")));
         });
         Map<String, Object> agg = jdbc.queryForMap("SELECT COUNT(*) AS n, COALESCE(SUM(c.total), 0) AS total, "
-                + "COALESCE(SUM(c.propina), 0) AS propina" + where, p);
+                + "COALESCE(SUM(c.propina), 0) AS propina, COALESCE(SUM(c.total_devuelto), 0) AS devuelto" + where, p);
         long n = ((Number) agg.get("n")).longValue();
         BigDecimal total = dec(agg.get("total"));
         BigDecimal propina = dec(agg.get("propina"));
@@ -229,9 +230,11 @@ public class ReportCatalogService {
                 new Column("metodos", "Pagó con", "text"),
                 new Column("consumo", "Consumo", "money"),
                 new Column("propina", "Propina", "money"),
-                new Column("total", "Total", "money"));
+                new Column("total", "Total", "money"),
+                new Column("devuelto", "Devuelto", "money"));
         List<Metric> metrics = List.of(
                 metric("count", "Cuentas cobradas", n, "count", null),
+                metric("devuelto", "Devoluciones", dec(agg.get("devuelto")), "money", "Dinero regresado a clientes de estas cuentas."),
                 metric("consumo", "Consumo", total.subtract(propina), "money", "Lo que se vendió, sin propinas."),
                 metric("propina", "Propinas", propina, "money", null),
                 metric("avg", "Ticket promedio", n > 0 ? total.subtract(propina).divide(BigDecimal.valueOf(n), 2, RoundingMode.HALF_UP) : BigDecimal.ZERO, "money", "Consumo promedio por cuenta."));
@@ -513,7 +516,7 @@ public class ReportCatalogService {
         BigDecimal[] sum = {BigDecimal.ZERO};
         long[] count = {0};
         List<Map<String, Object>> rows = jdbc.query("SELECT CAST(p.created_at AS date) AS dia, COALESCE(SUM(p.monto), 0) AS total, "
-                + "COUNT(*) AS pagos" + PAGOS + " GROUP BY 1 ORDER BY 1", c.params(), (rs, i) -> {
+                + "COUNT(*) FILTER (WHERE p.monto > 0) AS pagos" + PAGOS + " GROUP BY 1 ORDER BY 1", c.params(), (rs, i) -> {
             String dia = rs.getDate("dia").toLocalDate().toString();
             BigDecimal total = nz(rs.getBigDecimal("total"));
             sum[0] = sum[0].add(total);
@@ -537,7 +540,7 @@ public class ReportCatalogService {
     private Report pagosPorMetodo(Ctx c) {
         List<Point> points = new ArrayList<>();
         BigDecimal[] sum = {BigDecimal.ZERO};
-        List<Map<String, Object>> rows = jdbc.query("SELECT p.metodo, COALESCE(SUM(p.monto), 0) AS total, COUNT(*) AS pagos" + PAGOS
+        List<Map<String, Object>> rows = jdbc.query("SELECT p.metodo, COALESCE(SUM(p.monto), 0) AS total, COUNT(*) FILTER (WHERE p.monto > 0) AS pagos" + PAGOS
                 + " GROUP BY p.metodo ORDER BY total DESC", c.params(), (rs, i) -> {
             String label = METHOD_LABEL.getOrDefault(rs.getString("metodo"), rs.getString("metodo"));
             BigDecimal total = nz(rs.getBigDecimal("total"));

@@ -15,6 +15,11 @@ import java.util.List;
 public interface CuentaRepository extends JpaRepository<Cuenta, Long> {
     List<Cuenta> findByOrdenIdOrderByCreatedAtAsc(Long ordenId);
 
+    /** Bloquea la fila hasta terminar la transacción: dos cobros a la misma cuenta van uno tras otro. */
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT c FROM Cuenta c WHERE c.id = :id")
+    java.util.Optional<Cuenta> findByIdForUpdate(@Param("id") Long id);
+
     /** Cuenta por el código del QR "califica tu visita" (ver OpinionService). */
     java.util.Optional<Cuenta> findByOpinionToken(String opinionToken);
 

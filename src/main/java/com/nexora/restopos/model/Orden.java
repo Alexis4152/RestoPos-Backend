@@ -221,6 +221,16 @@ public class Orden {
 
     private LocalDateTime closedAt;
 
+    // Cuándo quedó todo pagado. Pagado y entregado son cosas distintas: en para llevar, comer
+    // aquí y recoger se puede pagar antes de recibir, y mientras falte entregar algo la orden
+    // sigue abierta (cocina la sigue viendo). Se cierra (PAGADA) al entregar lo último.
+    @Column(name = "pagado_at")
+    private LocalDateTime pagadoAt;
+
+    // Folio de la transferencia o del voucher que capturó el repartidor al entregar.
+    @Column(name = "referencia_pago", length = 100)
+    private String referenciaPago;
+
     @JsonIgnoreProperties({"role", "tienda", "createdBy", "updatedBy", "deletedBy"})
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "cancelled_by_user_id")

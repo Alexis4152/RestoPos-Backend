@@ -45,6 +45,7 @@ public class CuentaService {
     private final OrdenService ordenService;
     private final TenantScope tenantScope;
     private final AuditoriaService auditoriaService;
+    private final jakarta.persistence.EntityManager entityManager;
 
     public Cuenta findById(Long id) {
         return cuentaRepository.findById(id)
@@ -53,6 +54,22 @@ public class CuentaService {
 
     public Cuenta findById(Long id, User actor) {
         Cuenta c = findById(id);
+        Long scope = tenantScope.scopeId(actor);
+        if (scope != null && (c.getOrden().getTienda() == null || !scope.equals(c.getOrden().getTienda().getId()))) {
+            throw new IllegalArgumentException("Cuenta no encontrada: " + id);
+        }
+        return c;
+    }
+
+    /**
+     * Cuenta bloqueada hasta que termine la transacción, con sus datos recién leídos: quien
+     * llegue después espera y ya ve el saldo actualizado, así dos cobros simultáneos no pueden
+     * pasar los dos la validación del saldo. Debe llamarse dentro de una transacción.
+     */
+    public Cuenta bloquear(Long id, User actor) {
+        Cuenta c = cuentaRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new IllegalArgumentException("Cuenta no encontrada: " + id));
+        entityManager.refresh(c); // la consulta no relee una cuenta que ya estaba cargada
         Long scope = tenantScope.scopeId(actor);
         if (scope != null && (c.getOrden().getTienda() == null || !scope.equals(c.getOrden().getTienda().getId()))) {
             throw new IllegalArgumentException("Cuenta no encontrada: " + id);
@@ -145,6 +162,7 @@ public class CuentaService {
                 .fecha(fecha)
                 .total(total)
                 .estado(calcularEstadoAgregado(cuentas))
+                .ordenEstado(orden.getEstado())
                 .cuentas(cuentas)
                 .build();
     }
@@ -186,9 +204,10 @@ public class CuentaService {
         if ("WEB".equals(orden.getOrigen()) && "DOMICILIO".equals(orden.getTipoEntrega())) {
             throw new IllegalStateException("Este pedido web a domicilio lo cobra el repartidor al entregarlo");
         }
-        // En caja solo se cobra lo que ya se entregó (a la mesa o al cliente para llevar).
+        // En mesa solo se cobra lo que ya se entregó. Para llevar, comer aquí y recoger se puede
+        // pagar antes de recibir: cobrar no toca el estado de cocina (ver OrdenService#cobroAnticipado).
         try {
-            return crearInternal(ordenId, req, actor, true);
+            return crearInternal(ordenId, req, actor, !OrdenService.cobroAnticipado(orden));
         } catch (ObjectOptimisticLockingFailureException e) {
             throw new IllegalStateException("La orden se modificó al mismo tiempo, intenta de nuevo");
         }
@@ -322,9 +341,14 @@ public class CuentaService {
 
     @Transactional
     public void cancelar(Long cuentaId, String motivo, User actor) {
-        Cuenta cuenta = findById(cuentaId, actor);
+        Cuenta cuenta = bloquear(cuentaId, actor);
         if (cuenta.getEstado() != CuentaEstado.PENDIENTE) {
             throw new IllegalStateException("Solo se puede cancelar una cuenta pendiente (sin pagos)");
+        }
+        // Con un abono, cancelarla dejaría el dinero en el corte sin venta y los platillos libres
+        // para volver a cobrarse.
+        if (cuenta.getTotalPagado().signum() > 0) {
+            throw new IllegalStateException("Esta cuenta ya tiene pagos: primero un administrador debe cancelarlos, con su motivo");
         }
         for (CuentaDetalle cd : cuenta.getItems()) {
             OrdenDetalle item = cd.getOrdenDetalle();

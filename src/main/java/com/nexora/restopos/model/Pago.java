@@ -16,7 +16,8 @@ import java.time.LocalDateTime;
  * para poder consolidarlo en el corte de caja.
  */
 @Entity
-@Table(name = "pagos")
+@Table(name = "pagos", uniqueConstraints = @UniqueConstraint(name = "uk_pagos_idempotencia",
+        columnNames = {"cuenta_id", "idempotency_key"}))
 @Getter @Setter @Builder @NoArgsConstructor @AllArgsConstructor
 public class Pago {
 
@@ -64,6 +65,27 @@ public class Pago {
 
     @Column(length = 255)
     private String motivoCancelacion;
+
+    // Llave que manda el frontend por cada intento de cobro: si la misma petición llega dos
+    // veces (doble toque, reintento por mala red) se devuelve el pago ya hecho, no se crea otro.
+    @Column(name = "idempotency_key", length = 64)
+    private String idempotencyKey;
+
+    // Devolución de dinero: es un Pago con monto NEGATIVO ligado al pago original. Así el corte,
+    // los ingresos y los pagos por método se descuentan solos, sin fórmulas aparte.
+    @Column(name = "pago_origen_id")
+    private Long pagoOrigenId;
+
+    // Solo transferencias: POR_VERIFICAR (recién cobrada), VERIFICADA (el dinero sí llegó) o
+    // NO_RECIBIDA. Null en los demás métodos y en las transferencias anteriores a este control.
+    @Column(length = 20)
+    private String verificacion;
+
+    @Column(name = "verificada_por", length = 100)
+    private String verificadaPor;
+
+    @Column(name = "verificada_at")
+    private LocalDateTime verificadaAt;
 
     @CreationTimestamp
     private LocalDateTime createdAt;

@@ -34,6 +34,8 @@ public class VentaResumen {
     /** Suma del total de las cuentas no canceladas — lo que la orden realmente representa en ventas. */
     private BigDecimal total;
     private CuentaEstado estado;
+    /** Estado de la orden: en una orden cerrada ya no se cancelan pagos, se devuelven. */
+    private com.nexora.restopos.model.OrdenEstado ordenEstado;
     /** Desglose completo: cada cuenta (tipo, folio, monto, estado) con sus propios pagos. */
     private List<Cuenta> cuentas;
 }

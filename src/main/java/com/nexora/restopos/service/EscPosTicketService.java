@@ -174,7 +174,7 @@ public class EscPosTicketService {
         for (Pago pago : cuenta.getPagos()) {
             if (Boolean.TRUE.equals(pago.getCancelado())) continue;
             pagosActivos++;
-            text(buf, padBetween(metodoPagoEs(pago.getMetodo()), money(pago.getMonto())) + "\n");
+            text(buf, padBetween((pago.getPagoOrigenId() != null ? "Devol. " : "") + metodoPagoEs(pago.getMetodo()), money(pago.getMonto())) + "\n");
             if (pago.getMetodo() == PaymentMethod.CASH) huboEfectivo = true;
             if (pago.getRecibido() != null && pago.getRecibido().compareTo(pago.getMonto()) > 0) {
                 recibidoTotal = recibidoTotal.add(pago.getRecibido());

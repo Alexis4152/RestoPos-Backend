@@ -24,7 +24,12 @@ public class PagoRequest {
     // solo relevante para CASH, para calcular el cambio en el ticket
     @DecimalMax(value = "9999999999.99", message = "El número es excesivamente grande — el máximo permitido es 9,999,999,999.99")
     private BigDecimal recibido;
+    // Obligatoria en transferencias (se valida en PagoService#registrar).
+    @Size(max = 100, message = "La referencia no puede tener más de 100 caracteres")
     private String referencia;
+    // Llave única de este intento de cobro: un reintento con la misma llave no crea otro pago.
+    @Size(max = 64, message = "Llave de pago no válida")
+    private String idempotencyKey;
     // opcional: si se manda, al completarse el pago de la cuenta se envía el ticket por correo.
     // Tope = cuentas.ticket_email_destino VARCHAR(150) (ver Cuenta.ticketEmailDestino); sin
     // este @Size, un correo demasiado largo revienta en un error crudo de base de datos.

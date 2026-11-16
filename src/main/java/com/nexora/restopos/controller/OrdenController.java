@@ -208,6 +208,12 @@ public class OrdenController {
         return ResponseEntity.ok(ApiResponse.ok(opinionService.deOrden(id)));
     }
 
+    /** Marca como entregado todo lo que falte (pedido cobrado por adelantado): con eso la orden se cierra. */
+    @PostMapping("/{id}/entregar-todo")
+    public ResponseEntity<ApiResponse<Orden>> entregarTodo(@PathVariable Long id, @AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(ordenService.entregarTodo(id, actor), "Pedido entregado"));
+    }
+
     @PostMapping("/{id}/cancel")
     public ResponseEntity<ApiResponse<Void>> cancelar(@PathVariable Long id, @RequestBody(required = false) CancelRequest req,
                                                        @AuthenticationPrincipal User actor) {

@@ -144,7 +144,7 @@ public class TicketPdfService {
             for (Pago pago : cuenta.getPagos()) {
                 if (Boolean.TRUE.equals(pago.getCancelado())) continue;
                 pagosActivos++;
-                document.add(paragraph(metodoPagoEs(pago.getMetodo()) + ": " + money(pago.getMonto()), FONT_BODY, Element.ALIGN_RIGHT, 0, 2));
+                document.add(paragraph((pago.getPagoOrigenId() != null ? "Devolución " : "") + metodoPagoEs(pago.getMetodo()) + ": " + money(pago.getMonto()), FONT_BODY, Element.ALIGN_RIGHT, 0, 2));
                 if (pago.getRecibido() != null && pago.getRecibido().compareTo(pago.getMonto()) > 0) {
                     recibidoTotal = recibidoTotal.add(pago.getRecibido());
                     cambioTotal = cambioTotal.add(pago.getRecibido().subtract(pago.getMonto()));

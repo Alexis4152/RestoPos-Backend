@@ -51,6 +51,7 @@ public class OrdenService {
     private final OrdenDetalleRepository ordenDetalleRepository;
     private final MesaRepository mesaRepository;
     private final CuentaRepository cuentaRepository;
+    private final com.nexora.restopos.repository.PagoRepository pagoRepository;
     private final ProductService productService;
     private final ModificadorGrupoRepository modificadorGrupoRepository;
     private final ModificadorOpcionRepository modificadorOpcionRepository;
@@ -808,6 +809,10 @@ public class OrdenService {
         Orden orden = findById(ordenId, actor);
         ensureModificable(orden);
         ensureNoSalioAEntregar(orden);
+        BigDecimal descuento = req.getDescuento() != null ? req.getDescuento() : BigDecimal.ZERO;
+        if (descuento.signum() > 0 && !tenantScope.isAdminLevel(actor)) {
+            throw new org.springframework.security.access.AccessDeniedException("Solo un administrador o supervisor puede aplicar descuentos");
+        }
 
         Product producto = productService.findById(req.getProductoId(), actor);
         if (!Boolean.TRUE.equals(producto.getIsActive()) || !Boolean.TRUE.equals(producto.getDisponible())) {
@@ -822,10 +827,13 @@ public class OrdenService {
                     .orElseThrow(() -> new IllegalArgumentException("Comensal no pertenece a esta orden"));
         }
 
-        OrdenDetalle saved = crearLinea(orden, producto, comensal, req.getCantidad(),
-                req.getDescuento() != null ? req.getDescuento() : BigDecimal.ZERO,
+        OrdenDetalle saved = crearLinea(orden, producto, comensal, req.getCantidad(), descuento,
                 req.getObservaciones(), req.getModificadorOpcionIds(), actor);
+        if (descuento.signum() > 0) {
+            auditoriaService.log(actor, "DESCUENTO_ITEM", "OrdenDetalle", saved.getId(), null, descuento, saved.getProductoNombre());
+        }
         if (orden.getEstado() == OrdenEstado.ABIERTA) orden.setEstado(OrdenEstado.EN_PROCESO);
+        orden.setPagadoAt(null); // lo nuevo todavía no está pagado
         recomputeTotals(orden);
         ordenRepository.save(orden);
         return saved;
@@ -847,7 +855,11 @@ public class OrdenService {
         // El subtotal SÍ incluye los extras (es lo que de verdad se cobra); precioUnitario se
         // deja en el precio base del producto para que el ticket pueda desglosar cada extra por
         // separado en vez de fundirlo en un "precio por unidad" que no coincide con el del menú.
-        BigDecimal subtotal = producto.getPrice().add(extrasUnitario).multiply(cantidad).subtract(descuento);
+        BigDecimal importe = producto.getPrice().add(extrasUnitario).multiply(cantidad);
+        if (descuento.compareTo(importe) > 0) {
+            throw new IllegalArgumentException(String.format("El descuento no puede pasar del importe del producto ($%,.2f)", importe));
+        }
+        BigDecimal subtotal = importe.subtract(descuento);
 
         OrdenDetalle item = new OrdenDetalle();
         item.setOrden(orden);
@@ -997,8 +1009,12 @@ public class OrdenService {
         item.setComensal(comensal);
         item.setCantidad(req.getCantidad());
         item.setObservaciones(nuevasObs);
-        item.setSubtotal(item.getPrecioUnitario().add(extrasUnitario).multiply(req.getCantidad()).subtract(item.getDescuento()));
+        // Al bajar la cantidad, el descuento nunca puede dejar la línea en negativo.
+        BigDecimal importe = item.getPrecioUnitario().add(extrasUnitario).multiply(req.getCantidad());
+        item.setDescuento(item.getDescuento().min(importe));
+        item.setSubtotal(importe.subtract(item.getDescuento()));
         OrdenDetalle saved = ordenDetalleRepository.save(item);
+        if (subeCantidad) orden.setPagadoAt(null); // lo agregado todavía no está pagado
 
         recomputeTotals(orden);
         ordenRepository.save(orden);
@@ -1026,6 +1042,7 @@ public class OrdenService {
             OrdenDetalleEstado.PENDIENTE, OrdenDetalleEstado.PREPARANDO, OrdenDetalleEstado.LISTO,
             OrdenDetalleEstado.ENTREGADO_MESERO, OrdenDetalleEstado.ENTREGADO);
 
+    @Transactional
     public OrdenDetalle actualizarEstadoItem(Long ordenId, Long itemId, OrdenDetalleEstado estado, User actor) {
         Orden orden = findById(ordenId, actor);
         OrdenDetalle item = findItem(orden, itemId);
@@ -1047,13 +1064,34 @@ public class OrdenService {
                 && item.getEntregadoCocinaAt() == null) {
             item.setEntregadoCocinaAt(LocalDateTime.now());
         }
-        return ordenDetalleRepository.save(item);
+        OrdenDetalle saved = ordenDetalleRepository.save(item);
+        // Ya estaba pagada y solo faltaba entregar: lo último que se entrega cierra la orden.
+        if (estado == OrdenDetalleEstado.ENTREGADO && orden.getPagadoAt() != null) marcarPagadaSiCorresponde(orden);
+        return saved;
+    }
+
+    /** Marca como entregado todo lo que falte de la orden (botón "Ya se entregó" tras cobrar por adelantado). */
+    @Transactional
+    public Orden entregarTodo(Long ordenId, User actor) {
+        Orden orden = findById(ordenId, actor);
+        ensureModificable(orden);
+        for (OrdenDetalle item : List.copyOf(orden.getItems())) { // copia: entregar lo último cierra la orden
+            if (item.getEstado() != OrdenDetalleEstado.CANCELADO && item.getEstado() != OrdenDetalleEstado.ENTREGADO
+                    && !Boolean.TRUE.equals(item.getCargoExtra())) {
+                actualizarEstadoItem(ordenId, item.getId(), OrdenDetalleEstado.ENTREGADO, actor);
+            }
+        }
+        return findById(ordenId, actor);
     }
 
     @Transactional
     public void cancelarItem(Long ordenId, Long itemId, String motivo, User actor) {
         Orden orden = findById(ordenId, actor);
+        ensureModificable(orden);
         OrdenDetalle item = findItem(orden, itemId);
+        if (item.getEstado() == OrdenDetalleEstado.CANCELADO) {
+            throw new IllegalStateException("Este producto ya está cancelado");
+        }
         if (item.getCantidadFacturada().compareTo(BigDecimal.ZERO) > 0) {
             throw new IllegalStateException("No se puede cancelar: ya se incluyó en una cuenta");
         }
@@ -1064,17 +1102,30 @@ public class OrdenService {
         recomputeTotals(orden);
         ordenRepository.save(orden);
         auditoriaService.log(actor, "CANCELAR_ITEM_ORDEN", "OrdenDetalle", item.getId(), anterior, item.getEstado(), motivo);
+        marcarPagadaSiCorresponde(orden); // era lo único que faltaba de una orden ya cobrada
     }
 
     @Transactional
     public void cancelar(Long ordenId, String motivo, User actor) {
         Orden orden = findById(ordenId, actor);
-        boolean tienePagos = cuentaRepository.findByOrdenIdOrderByCreatedAtAsc(ordenId).stream()
-                .anyMatch(c -> c.getEstado() == CuentaEstado.PAGADA);
-        if (tienePagos) {
-            throw new IllegalStateException("No se puede cancelar: la orden ya tiene pagos registrados");
+        if (orden.getEstado() == OrdenEstado.CANCELADA) throw new IllegalStateException("Esta orden ya está cancelada");
+        if (orden.getEstado() == OrdenEstado.PAGADA) throw new IllegalStateException("No se puede cancelar: la orden ya se cobró y se cerró");
+        // Cualquier pago vigente bloquea, también un abono parcial: el dinero está en la caja.
+        if (pagoRepository.netoPorOrden(ordenId).signum() > 0) {
+            throw new IllegalStateException("No se puede cancelar: la orden tiene pagos vigentes. Primero un administrador debe cancelarlos, con su motivo");
         }
         OrdenEstado anterior = orden.getEstado();
+        // Sus cuentas pendientes ya no se van a cobrar: se cancelan con ella.
+        for (Cuenta cuenta : cuentaRepository.findByOrdenIdOrderByCreatedAtAsc(ordenId)) {
+            if (cuenta.getEstado() != CuentaEstado.PENDIENTE) continue;
+            for (CuentaDetalle cd : cuenta.getItems()) {
+                OrdenDetalle linea = cd.getOrdenDetalle();
+                linea.setCantidadFacturada(linea.getCantidadFacturada().subtract(cd.getCantidad()));
+                ordenDetalleRepository.save(linea);
+            }
+            cuenta.setEstado(CuentaEstado.CANCELADA);
+            cuentaRepository.save(cuenta);
+        }
         // Lo que no se canceló antes regresa al inventario (solo productos con inventario).
         for (OrdenDetalle item : orden.getItems()) {
             if (item.getEstado() != OrdenDetalleEstado.CANCELADO) {
@@ -1145,20 +1196,56 @@ public class OrdenService {
         }
     }
 
-    /** Llamado por {@link PagoService} tras cada pago: si ya no queda nada pendiente, cierra la orden y libera la mesa. */
+    /** ¿Esta orden se puede pagar antes de recibirla? Para llevar, comer aquí y recoger (no mesa ni domicilio). */
+    public static boolean cobroAnticipado(Orden orden) {
+        String tipo = orden.getTipoEntrega();
+        return "PARA_LLEVAR".equals(tipo) || "COMER_AQUI".equals(tipo) || "RECOGER".equals(tipo)
+                || (tipo == null && orden.getMesa() == null);
+    }
+
+    /**
+     * Llamado tras cada pago y tras cada entrega de una orden ya pagada. Si no queda nada por
+     * cobrar se registra {@code pagadoAt}, y la orden solo se cierra (y libera la mesa) cuando
+     * además ya se entregó todo: pagada y sin entregar sigue abierta, así que cocina la sigue viendo.
+     */
     public void marcarPagadaSiCorresponde(Orden orden) {
         boolean todoFacturado = orden.getItems().stream()
                 .filter(i -> i.getEstado() != OrdenDetalleEstado.CANCELADO)
                 .allMatch(i -> i.getCantidadFacturada().compareTo(i.getCantidad()) >= 0);
-        boolean todoPagado = cuentaRepository.findByOrdenIdOrderByCreatedAtAsc(orden.getId()).stream()
+        List<Cuenta> vigentes = cuentaRepository.findByOrdenIdOrderByCreatedAtAsc(orden.getId()).stream()
                 .filter(c -> c.getEstado() != CuentaEstado.CANCELADA)
-                .allMatch(c -> c.getEstado() == CuentaEstado.PAGADA);
+                .toList();
+        boolean todoPagado = !vigentes.isEmpty() && vigentes.stream().allMatch(c -> c.getEstado() == CuentaEstado.PAGADA);
         if (todoFacturado && todoPagado) {
+            if (orden.getPagadoAt() == null) orden.setPagadoAt(LocalDateTime.now());
+            boolean todoEntregado = orden.getItems().stream()
+                    .filter(i -> i.getEstado() != OrdenDetalleEstado.CANCELADO && !Boolean.TRUE.equals(i.getCargoExtra()))
+                    .allMatch(i -> i.getEstado() == OrdenDetalleEstado.ENTREGADO);
+            if (!todoEntregado) {
+                // Ya no debe nada, pero sigue en servicio: deja de estar "en espera de cobro".
+                if (orden.getMesa() != null && orden.getMesa().getEstado() == MesaEstado.PENDIENTE_PAGO) {
+                    for (Mesa mesa : mesasDe(orden)) {
+                        mesa.setEstado(MesaEstado.OCUPADA);
+                        mesaRepository.save(mesa);
+                    }
+                }
+                if (orden.getEstado() == OrdenEstado.PENDIENTE_PAGO) orden.setEstado(OrdenEstado.EN_PROCESO);
+                ordenRepository.save(orden);
+                return;
+            }
             orden.setEstado(OrdenEstado.PAGADA);
             orden.setClosedAt(LocalDateTime.now());
             liberarMesa(orden);
             ordenRepository.save(orden);
         }
+    }
+
+    /** Se canceló un pago de una orden que ya estaba pagada y sin entregar: vuelve a deber. */
+    public void reabrirCobro(Orden orden) {
+        if (orden.getPagadoAt() == null) return;
+        orden.setPagadoAt(null);
+        ordenRepository.save(orden);
+        marcarPendienteDePago(orden);
     }
 
     /** Llamado por {@link CuentaService} al cancelar una cuenta pendiente: si ya no queda ninguna cuenta pendiente, regresa la mesa a OCUPADA. */

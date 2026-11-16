@@ -21,7 +21,23 @@ public interface PagoRepository extends JpaRepository<Pago, Long> {
            "AND (:tiendaId IS NULL OR p.cuenta.orden.tienda.id = :tiendaId)")
     BigDecimal totalBetween(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to, @Param("tiendaId") Long tiendaId);
 
-    @Query("SELECT COUNT(p) FROM Pago p WHERE p.cancelado = false AND p.createdAt BETWEEN :from AND :to " +
+    /** Pago ya registrado en esa cuenta con esa llave (reintento de la misma petición). */
+    java.util.Optional<Pago> findByCuentaIdAndIdempotencyKey(Long cuentaId, String idempotencyKey);
+
+    /** Lo que la tienda conserva de una orden: pagos vigentes menos devoluciones. */
+    @Query("SELECT COALESCE(SUM(p.monto), 0) FROM Pago p WHERE p.cancelado = false AND p.cuenta.orden.id = :ordenId")
+    BigDecimal netoPorOrden(@Param("ordenId") Long ordenId);
+
+    /** Cuánto se ha devuelto ya de un pago (positivo). */
+    @Query("SELECT COALESCE(SUM(-p.monto), 0) FROM Pago p WHERE p.cancelado = false AND p.pagoOrigenId = :pagoId")
+    BigDecimal devueltoDe(@Param("pagoId") Long pagoId);
+
+    /** Transferencias sin confirmar (o marcadas como no recibidas), las más antiguas primero. */
+    @Query("SELECT p FROM Pago p WHERE p.cancelado = false AND p.verificacion IN ('POR_VERIFICAR', 'NO_RECIBIDA') " +
+           "AND (:tiendaId IS NULL OR p.cuenta.orden.tienda.id = :tiendaId) ORDER BY p.createdAt ASC")
+    List<Pago> transferenciasPorVerificar(@Param("tiendaId") Long tiendaId);
+
+    @Query("SELECT COUNT(p) FROM Pago p WHERE p.cancelado = false AND p.monto > 0 AND p.createdAt BETWEEN :from AND :to " +
            "AND (:tiendaId IS NULL OR p.cuenta.orden.tienda.id = :tiendaId)")
     long countBetween(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to, @Param("tiendaId") Long tiendaId);
 
@@ -37,7 +53,7 @@ public interface PagoRepository extends JpaRepository<Pago, Long> {
      * {@code [PaymentMethod, Boolean cancelado, cantidad, suma]}. Lo usa el cálculo del
      * efectivo esperado ({@code CashBalanceCalculator}): una sola consulta agregada.
      */
-    @Query("SELECT p.metodo, p.cancelado, COUNT(p), COALESCE(SUM(p.monto), 0) FROM Pago p " +
+    @Query("SELECT p.metodo, p.cancelado, SUM(CASE WHEN p.monto > 0 THEN 1 ELSE 0 END), COALESCE(SUM(p.monto), 0) FROM Pago p " +
            "WHERE p.cashCut.id = :cutId GROUP BY p.metodo, p.cancelado")
     List<Object[]> sumByCashCut(@Param("cutId") Long cutId);
 }

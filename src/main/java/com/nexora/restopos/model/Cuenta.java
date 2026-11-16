@@ -59,6 +59,12 @@ public class Cuenta {
     @Builder.Default
     private BigDecimal totalPagado = BigDecimal.ZERO;
 
+    // Dinero regresado al cliente después de cobrar (ver PagoService#devolver). No cambia
+    // totalPagado: la venta sí ocurrió, y este campo dice cuánto de ella se devolvió.
+    @Column(name = "total_devuelto", nullable = false, precision = 12, scale = 2, columnDefinition = "numeric(12,2) default 0")
+    @Builder.Default
+    private BigDecimal totalDevuelto = BigDecimal.ZERO;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 15)
     @Builder.Default
