@@ -43,7 +43,9 @@ public class MenuImprimibleController {
             throw new IllegalStateException("Activa la página web de la tienda (Configuración → Página web) para poner el QR en el menú");
         }
         String base = frontendUrl.endsWith("/") ? frontendUrl.substring(0, frontendUrl.length() - 1) : frontendUrl;
-        String url = base + "/sitio/" + info.getPublicSlug();
+        // ?ver=menu: la página pública abre directo en el menú, sin la pantalla de acceso
+        // (quien escanea en la mesa entra como invitado; ver PublicSite.jsx en el frontend).
+        String url = base + "/sitio/" + info.getPublicSlug() + "?ver=menu";
         String png = "data:image/png;base64," + Base64.getEncoder().encodeToString(OpinionService.qrPng(url, 720));
         return ResponseEntity.ok(ApiResponse.ok(new OpinionDtos.EnlaceQr(url, png)));
     }

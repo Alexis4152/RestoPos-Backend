@@ -58,6 +58,7 @@ public class OrdenService {
     private final OrdenDetalleModificadorRepository ordenDetalleModificadorRepository;
     private final TiendaInfoRepository tiendaInfoRepository;
     private final ProductRepository productRepository;
+    private final MenuDiaService menuDiaService;
     private final com.nexora.restopos.repository.ClienteRepository clienteRepository;
     private final jakarta.persistence.EntityManager entityManager;
     private final TenantScope tenantScope;
@@ -246,7 +247,8 @@ public class OrdenService {
                     .orElseThrow(() -> new IllegalArgumentException("Un producto de tu pedido ya no existe"));
             boolean categoriaOk = producto.getCategory() == null
                     || (Boolean.TRUE.equals(producto.getCategory().getIsActive()) && producto.getCategory().isAvailableNow());
-            if (!Boolean.TRUE.equals(producto.getIsActive()) || !Boolean.TRUE.equals(producto.getDisponible()) || !categoriaOk) {
+            if (!Boolean.TRUE.equals(producto.getIsActive()) || !Boolean.TRUE.equals(producto.getDisponible()) || !categoriaOk
+                    || !menuDiaService.enMenuHoy(producto)) {
                 throw new IllegalArgumentException("\"" + producto.getName() + "\" no está disponible en este momento");
             }
             String obs = it.getObservaciones() != null && !it.getObservaciones().isBlank() ? it.getObservaciones().trim() : null;
@@ -305,7 +307,8 @@ public class OrdenService {
                     .filter(p -> p.getTienda() != null && p.getTienda().getId().equals(tienda.getId()))
                     .orElseThrow(() -> new IllegalArgumentException("Un producto de tu pedido ya no existe"));
             if (!Boolean.TRUE.equals(producto.getIsActive()) || !Boolean.TRUE.equals(producto.getDisponible())
-                    || (producto.getCategory() != null && !Boolean.TRUE.equals(producto.getCategory().getIsActive()))) {
+                    || (producto.getCategory() != null && !Boolean.TRUE.equals(producto.getCategory().getIsActive()))
+                    || !menuDiaService.enMenuHoy(producto)) {
                 throw new IllegalArgumentException("\"" + producto.getName() + "\" no está disponible");
             }
             String obs = it.getObservaciones() != null && !it.getObservaciones().isBlank() ? it.getObservaciones().trim() : null;
@@ -687,6 +690,12 @@ public class OrdenService {
                     // Clientes viejos que solo mandan "domicilio": se comportan como antes.
                     : (Boolean.TRUE.equals(req.getDomicilio()) ? "DOMICILIO" : "RECOGER");
             if (!TIPOS_POS.contains(tipo)) throw new IllegalArgumentException("Tipo de pedido no válido");
+            // Comer aquí: si la tienda tiene mesas, hay que asignarle una. Sin mesas (p. ej. una plaza
+            // comercial con espacios libres), se vende igual, solo con el nombre.
+            if ("COMER_AQUI".equals(tipo) && tiendaOrden != null
+                    && mesaRepository.existsByTiendaIdAndIsActiveTrue(tiendaOrden.getId())) {
+                throw new IllegalArgumentException("Elige la mesa donde se va a sentar");
+            }
         } else if ("COMER_AQUI".equalsIgnoreCase(req.getTipoEntrega() != null ? req.getTipoEntrega().trim() : "")) {
             // "Comer aquí" desde Para llevar: el cliente pide en caja y se le asigna mesa. Es una
             // orden de mesa normal; se conserva el tipo (y el nombre, si lo dieron) como referencia.
@@ -817,6 +826,9 @@ public class OrdenService {
         Product producto = productService.findById(req.getProductoId(), actor);
         if (!Boolean.TRUE.equals(producto.getIsActive()) || !Boolean.TRUE.equals(producto.getDisponible())) {
             throw new IllegalStateException("Producto no disponible: " + producto.getName());
+        }
+        if (!menuDiaService.enMenuHoy(producto)) {
+            throw new IllegalStateException("\"" + producto.getName() + "\" no está en el menú de hoy");
         }
 
         Comensal comensal = null;

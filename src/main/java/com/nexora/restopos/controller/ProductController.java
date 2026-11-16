@@ -41,6 +41,18 @@ public class ProductController {
     private final ProductService productService;
     private final ProductImageService productImageService;
     private final ProductBulkImportService productBulkImportService;
+    private final com.nexora.restopos.service.MenuDiaService menuDiaService;
+    private final com.nexora.restopos.security.TenantScope tenantScope;
+
+    /**
+     * Buscadores al tomar una orden ({@code paraOrdenar=true}): si la tienda tiene menú de hoy,
+     * solo sus platillos. Trae de más y recorta después para no perder lugares por los filtrados.
+     */
+    private List<Product> soloMenuHoy(java.util.function.IntFunction<List<Product>> buscar, int limite, User actor) {
+        java.util.Set<Long> ids = menuDiaService.idsMenuHoy(tenantScope.scopeId(actor));
+        if (ids == null) return buscar.apply(limite);
+        return buscar.apply(Math.max(limite, 1000)).stream().filter(p -> ids.contains(p.getId())).limit(limite).toList();
+    }
 
     /**
      * Lista todos los productos de la tienda del usuario autenticado.
@@ -75,7 +87,12 @@ public class ProductController {
                                      @RequestParam(required = false) Boolean lowStock,
                                      @RequestParam(defaultValue = "0") int page,
                                      @RequestParam(defaultValue = "20") int size,
+                                     @RequestParam(defaultValue = "false") boolean paraOrdenar,
                                      @AuthenticationPrincipal User actor) {
+        if (paraOrdenar) {
+            List<Product> lista = soloMenuHoy(n -> productService.search(q, categoryId, lowStock, false, PageRequest.of(0, n), actor).getContent(), size, actor);
+            return ResponseEntity.ok(ApiResponse.ok(lista, null));
+        }
         Pageable pageable = PageRequest.of(page, size);
         Page<Product> result = productService.search(q, categoryId, lowStock, false, pageable, actor);
         return ResponseEntity.ok(ApiResponse.ok(result.getContent(), null));
@@ -94,7 +111,11 @@ public class ProductController {
     @PreAuthorize("@sectionAccess.checkAny('ORDERS', 'MENU', 'DASHBOARD')")
     public ResponseEntity<ApiResponse<List<Product>>> topSelling(@RequestParam(required = false) Long categoryId,
                                                                    @RequestParam(defaultValue = "20") int limit,
+                                                                   @RequestParam(defaultValue = "false") boolean paraOrdenar,
                                                                    @AuthenticationPrincipal User actor) {
+        if (paraOrdenar) {
+            return ResponseEntity.ok(ApiResponse.ok(soloMenuHoy(n -> productService.topSelling(categoryId, n, actor), limit, actor), null));
+        }
         return ResponseEntity.ok(ApiResponse.ok(productService.topSelling(categoryId, limit, actor), null));
     }
 

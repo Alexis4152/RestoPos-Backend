@@ -18,6 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -34,6 +35,7 @@ public class PublicSiteService {
     private final CategoryRepository categoryRepository;
     private final ProductRepository productRepository;
     private final ZonaRepository zonaRepository;
+    private final MenuDiaService menuDiaService;
     private final MesaRepository mesaRepository;
 
     /** Tienda con página web activa para ese slug, o error "no encontrada". */
@@ -74,10 +76,12 @@ public class PublicSiteService {
      * Menú pedible AHORA: categorías activas y dentro de horario (ver
      * {@link Category#isAvailableNow()}), con sus productos activos y disponibles. Las
      * categorías sin productos no se muestran; los productos sin categoría van en "Otros".
+     * Si la tienda tiene menú de hoy, solo sus platillos (ver MenuDiaService).
      */
     @Transactional(readOnly = true)
     public List<PublicSiteDtos.Categoria> menu(String slug) {
         Long tiendaId = resolve(slug).getTienda().getId();
+        Set<Long> menuHoy = menuDiaService.idsMenuHoy(tiendaId);
         Map<Long, Category> categorias = categoryRepository.findAllForTienda(tiendaId).stream()
                 .filter(Category::isAvailableNow)
                 .collect(Collectors.toMap(Category::getId, c -> c, (a, b) -> a, LinkedHashMap::new));
@@ -86,6 +90,7 @@ public class PublicSiteService {
         List<PublicSiteDtos.Producto> sinCategoria = new ArrayList<>();
         for (Product p : productRepository.findAllActive(tiendaId)) {
             if (!Boolean.TRUE.equals(p.getDisponible())) continue;
+            if (menuHoy != null && !menuHoy.contains(p.getId())) continue;
             PublicSiteDtos.Producto dto = toDto(p);
             if (p.getCategory() == null) sinCategoria.add(dto);
             else if (categorias.containsKey(p.getCategory().getId())) {
