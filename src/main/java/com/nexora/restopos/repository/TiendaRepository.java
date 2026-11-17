@@ -16,6 +16,8 @@ public interface TiendaRepository extends JpaRepository<Tienda, Long> {
     List<Tienda> findAllByOrderByNameAsc();
     /** Lista las tiendas a cargo de un SUPERVISOR específico, ordenadas alfabéticamente. */
     List<Tienda> findBySupervisorIdOrderByNameAsc(Long supervisorId);
+    /** Cuántas tiendas ACTIVAS tiene a su cargo un SUPERVISOR (para el límite de su plan, ver {@code User#maxTiendas}). */
+    long countBySupervisorIdAndIsActiveTrue(Long supervisorId);
 
     // Todo por subconsulta (nunca se lee tienda.supervisor en Java) para no depender de que
     // esa relación LAZY siga "viva" en este punto del request — ver ProductService#

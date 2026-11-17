@@ -42,7 +42,17 @@ public class RoleService {
      */
     public List<Role> findAll(User actor) {
         Long scope = tenantScope.scopeId(actor);
-        return scope == null ? roleRepository.findAllByIsActiveTrueOrderByNameAsc() : roleRepository.findAllByTiendaIdAndIsActiveTrueOrderByNameAsc(scope);
+        List<Role> roles = scope == null
+                ? new java.util.ArrayList<>(roleRepository.findAllByIsActiveTrueOrderByNameAsc())
+                : new java.util.ArrayList<>(roleRepository.findAllByTiendaIdAndIsActiveTrueOrderByNameAsc(scope));
+        // SUPER_ADMIN siempre puede registrar un SUPERVISOR, aunque esté actuando dentro de
+        // una tienda (el rol de plataforma no tiene tienda, así que el filtro lo dejaría fuera).
+        if (tenantScope.isSuperAdmin(actor)) {
+            roleRepository.findFirstByNameAndTiendaIsNullOrderById("SUPERVISOR")
+                    .filter(supervisor -> roles.stream().noneMatch(r -> r.getId().equals(supervisor.getId())))
+                    .ifPresent(roles::add);
+        }
+        return roles;
     }
 
     /**
@@ -68,6 +78,10 @@ public class RoleService {
      */
     public Role findById(Long id, User actor) {
         Role r = findById(id);
+        // SUPER_ADMIN puede resolver CUALQUIER rol por id (incluido el de plataforma
+        // SUPERVISOR, que no tiene tienda) sin importar en qué tienda esté actuando;
+        // UserService#reconcileRoleForTienda corrige un rol de otra tienda.
+        if (tenantScope.isSuperAdmin(actor)) return r;
         Long scope = tenantScope.scopeId(actor);
         if (scope != null && (r.getTienda() == null || !scope.equals(r.getTienda().getId()))) {
             throw new IllegalArgumentException("Rol no encontrado: " + id);

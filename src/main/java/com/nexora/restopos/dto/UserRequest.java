@@ -1,10 +1,14 @@
 package com.nexora.restopos.dto;
 
 import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
+
+import java.util.List;
 
 /**
  * Payload para crear o actualizar un {@code User} ({@code POST}/{@code PUT /api/users/**},
@@ -40,4 +44,16 @@ public class UserRequest {
     private Boolean isActive;
     // solo aplica si quien crea/edita es SUPER_ADMIN; para el resto se ignora y se usa su propia tienda
     private Long tiendaId;
+
+    // Solo aplica si el rol elegido es SUPERVISOR y quien crea/edita es SUPER_ADMIN (para
+    // cualquier otro caso se ignora) — reemplaza POR COMPLETO el conjunto de tiendas que
+    // este Supervisor administra (ver Tienda#getSupervisor()/UserService#applySupervisedTiendas):
+    // null = no tocar la asignación actual; lista vacía = quitarle todas.
+    private List<Long> supervisedTiendaIds;
+
+    // Solo aplica si el rol es SUPERVISOR y quien crea/edita es SUPER_ADMIN: máximo de
+    // tiendas activas de su plan contratado. null = sin límite.
+    @Min(value = 0, message = "El máximo de tiendas no puede ser negativo")
+    @Max(value = 1000, message = "El máximo de tiendas no puede ser mayor a 1000")
+    private Integer maxTiendas;
 }

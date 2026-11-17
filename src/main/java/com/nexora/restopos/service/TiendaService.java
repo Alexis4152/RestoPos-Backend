@@ -9,8 +9,11 @@ import com.nexora.restopos.security.TenantScope;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * CRUD de tiendas (sucursales/negocios) y gestión de su color de marca (theming).
@@ -86,6 +89,38 @@ public class TiendaService {
     }
 
     /**
+     * Busca una tienda por id validando que el actor pueda administrarla (ver {@link
+     * TenantScope#canManageTienda}) — evita que un SUPERVISOR consulte una tienda ajena con
+     * solo cambiar el id en la URL.
+     *
+     * @throws AccessDeniedException si el actor no puede administrar esa tienda
+     */
+    public Tienda findById(Long id, User actor) {
+        Tienda t = findById(id);
+        if (!tenantScope.canManageTienda(actor, id)) {
+            throw new AccessDeniedException("No tienes permiso para ver esta tienda");
+        }
+        return t;
+    }
+
+    /**
+     * Plan del SUPERVISOR: máximo de tiendas que puede tener ({@code maxTiendas}, null = sin
+     * límite) y cuántas activas tiene ({@code usedTiendas}). Para SUPER_ADMIN no aplica
+     * (ambos en null).
+     */
+    public Map<String, Object> plan(User actor) {
+        Map<String, Object> plan = new HashMap<>();
+        if (tenantScope.isSupervisor(actor)) {
+            plan.put("maxTiendas", actor.getMaxTiendas());
+            plan.put("usedTiendas", tiendaRepository.countBySupervisorIdAndIsActiveTrue(actor.getId()));
+        } else {
+            plan.put("maxTiendas", null);
+            plan.put("usedTiendas", null);
+        }
+        return plan;
+    }
+
+    /**
      * Da de alta una tienda nueva y le siembra sus roles por defecto (ADMIN, CASHIER,
      * SELLER) vía {@link RoleService#seedDefaultRolesForTienda(Tienda)}, para que quede
      * lista para operar (dar de alta usuarios, productos, etc.) de inmediato.
@@ -94,8 +129,19 @@ public class TiendaService {
      * @param actor usuario que la crea (normalmente SUPER_ADMIN); queda registrado como
      *              {@code createdBy}
      * @return la tienda creada, ya con sus roles base sembrados
+     * @throws IllegalStateException si el actor es SUPERVISOR y ya llegó al máximo de
+     *         tiendas activas de su plan contratado ({@code User#maxTiendas})
      */
+    @Transactional
     public Tienda create(TiendaRequest req, User actor) {
+        if (tenantScope.isSupervisor(actor)) {
+            Integer max = actor.getMaxTiendas();
+            long used = tiendaRepository.countBySupervisorIdAndIsActiveTrue(actor.getId());
+            if (max != null && used >= max) {
+                throw new IllegalStateException("Tu plan contratado te permite capturar hasta " + max + " tienda"
+                        + (max == 1 ? "" : "s") + " y ya tienes " + used + ". Para agregar más, pide que amplíen tu plan.");
+            }
+        }
         Tienda t = new Tienda();
         t.setName(req.getName());
         t.setIsActive(true);
@@ -121,6 +167,9 @@ public class TiendaService {
      */
     public Tienda update(Long id, TiendaRequest req, User actor) {
         Tienda t = findById(id);
+        if (!tenantScope.canManageTienda(actor, id)) {
+            throw new AccessDeniedException("No tienes permiso para modificar esta tienda");
+        }
         t.setName(req.getName());
         if (tenantScope.isSuperAdmin(actor) && req.getSupervisorId() != null) {
             t.setSupervisor(resolveSupervisor(req.getSupervisorId()));
@@ -149,6 +198,9 @@ public class TiendaService {
      */
     public void deactivate(Long id, User actor) {
         Tienda t = findById(id);
+        if (!tenantScope.canManageTienda(actor, id)) {
+            throw new AccessDeniedException("No tienes permiso para desactivar esta tienda");
+        }
         t.setIsActive(false);
         t.setDeletedBy(actor);
         t.setDeletedAt(java.time.LocalDateTime.now());

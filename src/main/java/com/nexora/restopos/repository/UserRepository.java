@@ -39,9 +39,15 @@ public interface UserRepository extends JpaRepository<User, Long> {
      * {@code isActive} son opcionales (nulo = cualquier valor). {@code from}/{@code to} siempre
      * llegan con un valor real desde el service (nunca {@code null}), por la limitación de Postgres
      * para inferir el tipo de un parámetro timestamp nulo (ver comentario arriba).
+     *
+     * <p>{@code extraUserId} suma UN usuario puntual al resultado aunque no pertenezca a
+     * {@code tiendaId} — usado por {@code UserService#findAll} para que, viendo la lista de
+     * una tienda, SUPER_ADMIN vea también al Supervisor asignado a esa tienda (que por ser
+     * rol de plataforma no tiene {@code tienda_id} propio, así que de otra forma nunca
+     * calzaría con el filtro de arriba). {@code null} no suma a nadie.</p>
      */
     @Query("SELECT u FROM User u WHERE " +
-           "(:tiendaId IS NULL OR u.tienda.id = :tiendaId) " +
+           "(:tiendaId IS NULL OR u.tienda.id = :tiendaId OR u.id = :extraUserId) " +
            "AND u.createdAt BETWEEN :from AND :to " +
            "AND (:name IS NULL OR LOWER(u.name) LIKE LOWER(CONCAT('%', CAST(:name AS string), '%'))) " +
            "AND (:email IS NULL OR LOWER(u.email) LIKE LOWER(CONCAT('%', CAST(:email AS string), '%'))) " +
@@ -54,7 +60,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
                        @Param("name") String name,
                        @Param("email") String email,
                        @Param("roleId") Long roleId,
-                       @Param("isActive") Boolean isActive);
+                       @Param("isActive") Boolean isActive,
+                       @Param("extraUserId") Long extraUserId);
 
     // para avisarle por correo al/los admin(es) de una tienda cuando se autocierra un corte
     /** Lista los usuarios activos con rol ADMIN de una tienda; usado para notificarles por correo cuando el job autocierra un corte. */

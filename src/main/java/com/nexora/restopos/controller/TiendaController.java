@@ -69,9 +69,15 @@ public class TiendaController {
         return ResponseEntity.ok(ApiResponse.ok(tiendaService.resumen(actor), null));
     }
 
+    /** Plan del SUPERVISOR: {@code maxTiendas} (null = sin límite) y {@code usedTiendas} activas. */
+    @GetMapping("/plan")
+    public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> plan(@AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(tiendaService.plan(actor), null));
+    }
+
     @GetMapping("/{id}")
-    public ResponseEntity<ApiResponse<Tienda>> get(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.ok(tiendaService.findById(id), null));
+    public ResponseEntity<ApiResponse<Tienda>> get(@PathVariable Long id, @AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(tiendaService.findById(id, actor), null));
     }
 
     /**

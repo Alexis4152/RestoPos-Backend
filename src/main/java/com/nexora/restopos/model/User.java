@@ -68,6 +68,12 @@ public class User implements UserDetails {
     @Builder.Default
     private Boolean mustChangePassword = false;
 
+    // Solo aplica a un SUPERVISOR: máximo de tiendas ACTIVAS que puede tener a su cargo
+    // según su plan contratado (null = sin límite). Lo fija el SUPER_ADMIN al registrarlo o
+    // editarlo (ver UserService#applyMaxTiendas) y lo valida TiendaService#create cuando el
+    // propio supervisor da de alta una tienda nueva.
+    private Integer maxTiendas;
+
     // LAZY (a diferencia del resto de relaciones de esta clase) porque User se referencia
     // a sí mismo aquí — en EAGER, Hibernate encadena el join User→createdBy→createdBy→...
     // sin límite y Postgres truena con "límite de profundidad de stack alcanzado".

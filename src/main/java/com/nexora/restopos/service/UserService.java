@@ -1,9 +1,13 @@
 package com.nexora.restopos.service;
 
 import com.nexora.restopos.dto.UserRequest;
+import com.nexora.restopos.exception.FieldConflictException;
+import com.nexora.restopos.model.CashCutStatus;
 import com.nexora.restopos.model.Role;
 import com.nexora.restopos.model.Tienda;
 import com.nexora.restopos.model.User;
+import com.nexora.restopos.repository.CashCutRepository;
+import com.nexora.restopos.repository.RoleRepository;
 import com.nexora.restopos.repository.TiendaRepository;
 import com.nexora.restopos.repository.UserRepository;
 import com.nexora.restopos.security.TenantScope;
@@ -12,11 +16,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -25,9 +31,14 @@ import java.util.Optional;
  *
  * <p>Las contraseñas siempre se guardan cifradas vía {@link PasswordEncoder}, nunca en
  * texto plano. La asignación de tienda a un usuario nuevo depende de quién lo crea (ver
- * {@link #resolveTiendaForWrite(UserRequest, User)}): un SUPER_ADMIN puede asignar
- * cualquier tienda (o ninguna, para crear otro usuario de plataforma); cualquier otro
- * actor solo puede dar de alta usuarios dentro de su propia tienda.</p>
+ * {@link #resolveTiendaForWrite(UserRequest, User, Role)}): un SUPER_ADMIN puede asignar
+ * cualquier tienda; cualquier otro actor solo puede dar de alta usuarios dentro de su
+ * propia tienda (o la que esté actuando, si es SUPERVISOR). Los roles de plataforma
+ * (SUPER_ADMIN/SUPERVISOR) nunca tienen tienda propia.</p>
+ *
+ * <p>Registrar un SUPERVISOR (solo SUPER_ADMIN) incluye, en el mismo alta/edición, qué
+ * tiendas va a administrar ({@link UserRequest#getSupervisedTiendaIds()}) y el máximo de
+ * tiendas de su plan contratado ({@link UserRequest#getMaxTiendas()}).</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -35,7 +46,9 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final RoleService roleService;
+    private final RoleRepository roleRepository;
     private final TiendaRepository tiendaRepository;
+    private final CashCutRepository cashCutRepository;
     private final PasswordEncoder passwordEncoder;
     private final TenantScope tenantScope;
     private final EmailService emailService;
@@ -69,11 +82,12 @@ public class UserService {
     private static final int UNRANKED_ROLE = 3;
 
     private int rankOf(Role role) {
-        return ROLE_RANK.getOrDefault(role.getName(), UNRANKED_ROLE);
+        return role != null ? ROLE_RANK.getOrDefault(role.getName(), UNRANKED_ROLE) : UNRANKED_ROLE;
     }
 
     // Evita que, por ejemplo, un ADMIN dé de alta a otro ADMIN, o que un SUPERVISOR asigne
-    // el rol SUPER_ADMIN — solo se puede asignar un rol de rango estrictamente inferior al propio.
+    // el rol SUPERVISOR/SUPER_ADMIN — solo se puede asignar un rol de rango estrictamente
+    // inferior al propio.
     private void assertCanAssignRole(Role target, User actor) {
         if (rankOf(target) <= rankOf(actor.getRole())) {
             throw new AccessDeniedException("No puedes asignar un rol igual o superior al tuyo");
@@ -90,27 +104,19 @@ public class UserService {
         }
     }
 
-    // Un rol pertenece siempre a una sola tienda (o a ninguna, si es de plataforma) — un
-    // SUPER_ADMIN puede elegir rol y tienda por separado en el request, así que hay que
-    // validar explícitamente que no combine el rol de una tienda con la tienda de otra (o
-    // un rol de plataforma con una tienda, o viceversa). Para cualquier otro actor esto ya
-    // queda garantizado de forma implícita por roleService.findById(id, actor), que rechaza
-    // roles fuera de su propia tienda.
-    private void assertRoleMatchesTienda(Role role, Tienda tienda) {
-        Long roleTiendaId = role.getTienda() != null ? role.getTienda().getId() : null;
-        Long tiendaId = tienda != null ? tienda.getId() : null;
-        if (!java.util.Objects.equals(roleTiendaId, tiendaId)) {
-            throw new IllegalArgumentException("El rol seleccionado no pertenece a la tienda indicada");
-        }
-    }
-
     /**
      * Busca usuarios aplicando filtros combinables, acotado a la tienda del actor.
      *
-     * @param from fecha de alta mínima (inclusiva); si es null se usa un límite inferior
-     *             muy antiguo para evitar pasar null al BETWEEN de la consulta
-     * @param to fecha de alta máxima (inclusiva); si es null se usa un límite superior
-     *           muy lejano, por la misma razón
+     * <p>Los usuarios con rol de plataforma (SUPER_ADMIN, SUPERVISOR) no tienen tienda, así
+     * que nunca calzarían con el filtro normal de "tienda que esté actuando" — por eso, si
+     * un SUPER_ADMIN filtra explícitamente por un rol de plataforma, se busca sin filtro de
+     * tienda (para que pueda volver a encontrar al Supervisor que acaba de registrar). Y
+     * viendo la lista de una tienda concreta, SUPER_ADMIN ve también al Supervisor asignado
+     * a ESA tienda. Nada de esto aplica a Supervisor/Admin/Mesero: ellos solo ven usuarios
+     * de su propia tienda.</p>
+     *
+     * @param from fecha de alta mínima (inclusiva); null = sin límite inferior
+     * @param to fecha de alta máxima (inclusiva); null = sin límite superior
      * @param name filtro por nombre (parcial), o null para no filtrar
      * @param email filtro por correo (parcial), o null para no filtrar
      * @param roleId filtro por id de rol, o null para no filtrar
@@ -122,7 +128,46 @@ public class UserService {
                                Long roleId, Boolean isActive, User actor) {
         LocalDateTime effectiveFrom = from != null ? from : MIN_DATE;
         LocalDateTime effectiveTo = to != null ? to : MAX_DATE;
-        return userRepository.search(tenantScope.scopeId(actor), effectiveFrom, effectiveTo, name, email, roleId, isActive);
+        Long scope = tenantScope.isSuperAdmin(actor) && isPlatformRole(roleId) ? null : tenantScope.scopeId(actor);
+
+        Long tiendaSupervisorId = null;
+        if (scope != null && tenantScope.isSuperAdmin(actor) && (roleId == null || isRoleNamed(roleId, "SUPERVISOR"))) {
+            tiendaSupervisorId = tiendaRepository.findById(scope)
+                    .map(Tienda::getSupervisor).map(User::getId).orElse(null);
+        }
+        return userRepository.search(scope, effectiveFrom, effectiveTo, name, email, roleId, isActive, tiendaSupervisorId);
+    }
+
+    /** {@code true} si el id de rol dado corresponde a un rol de plataforma (sin tienda);
+     *  {@code false} (nunca truena) si el id es null o no existe. */
+    private boolean isPlatformRole(Long roleId) {
+        if (roleId == null) return false;
+        try {
+            return roleService.findById(roleId).getTienda() == null;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    /** {@code true} si el id de rol dado es exactamente el rol llamado {@code name}. */
+    private boolean isRoleNamed(Long roleId, String name) {
+        if (roleId == null) return false;
+        try {
+            return name.equals(roleService.findById(roleId).getName());
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    /** {@code true} si el rol dado es uno "de plataforma" (SUPER_ADMIN o SUPERVISOR): sin
+     *  tienda propia por diseño, ver {@link #resolveTiendaForWrite}. */
+    private boolean isPlatformRole(Role role) {
+        return role != null && role.getTienda() == null
+                && ("SUPER_ADMIN".equals(role.getName()) || "SUPERVISOR".equals(role.getName()));
+    }
+
+    private boolean isSupervisorRole(Role role) {
+        return isPlatformRole(role) && "SUPERVISOR".equals(role.getName());
     }
 
     /**
@@ -139,7 +184,10 @@ public class UserService {
     }
 
     /**
-     * Busca un usuario por id validando que pertenezca a la tienda del actor.
+     * Busca un usuario por id validando que pertenezca a la tienda del actor. SUPER_ADMIN
+     * puede ver CUALQUIER usuario por id, sin importar en qué tienda esté actuando — incluye
+     * a otros usuarios de plataforma (SUPERVISOR) que, al no tener tienda, nunca calzarían
+     * con el filtro normal.
      *
      * @param id id del usuario
      * @param actor usuario que realiza la consulta
@@ -148,57 +196,12 @@ public class UserService {
      */
     public User findById(Long id, User actor) {
         User u = findById(id);
+        if (tenantScope.isSuperAdmin(actor)) return u;
         Long scope = tenantScope.scopeId(actor);
         if (scope != null && (u.getTienda() == null || !scope.equals(u.getTienda().getId()))) {
             throw new IllegalArgumentException("Usuario no encontrado: " + id);
         }
         return u;
-    }
-
-    /**
-     * Da de alta un usuario nuevo.
-     *
-     * <p>La contraseña NUNCA la captura quien da de alta: siempre se genera una temporal al
-     * azar ({@link #generateTempPassword()}) y se le manda por correo (ver {@link
-     * EmailService#sendNewUserPasswordEmail}), junto con el aviso de que se le va a pedir
-     * cambiarla al iniciar sesión ({@link User#getMustChangePassword()} queda en {@code
-     * true}) — el campo {@code password} del request, si viene, se ignora a propósito. La
-     * tienda del usuario nuevo se resuelve con {@link #resolveTiendaForWrite(UserRequest,
-     * User)}: si el actor es SUPER_ADMIN se respeta la tienda solicitada (o ninguna); en
-     * cualquier otro caso el usuario nuevo siempre queda en la misma tienda que el actor,
-     * sin importar lo que venga en el request.</p>
-     *
-     * @param req datos del usuario nuevo (nombre, correo, rol, tienda deseada)
-     * @param actor usuario que lo da de alta; queda registrado como {@code createdBy}
-     * @return el usuario creado
-     * @throws IllegalArgumentException si el correo ya está registrado
-     */
-    public User create(UserRequest req, User actor) {
-        Optional<User> existing = userRepository.findByEmail(req.getEmail());
-        if (existing.isPresent()) {
-            User found = existing.get();
-            if (Boolean.TRUE.equals(found.getIsActive())) {
-                throw new IllegalArgumentException("El correo ya está registrado");
-            }
-            return reactivate(found, req, actor);
-        }
-        Role role = roleService.findById(req.getRoleId(), actor);
-        assertCanAssignRole(role, actor);
-        Tienda tienda = resolveTiendaForWrite(req, actor);
-        assertRoleMatchesTienda(role, tienda);
-        String tempPassword = generateTempPassword();
-        User u = new User();
-        u.setName(req.getName());
-        u.setEmail(req.getEmail());
-        u.setPassword(passwordEncoder.encode(tempPassword));
-        u.setMustChangePassword(true);
-        u.setRole(role);
-        u.setTienda(tienda);
-        u.setIsActive(true);
-        u.setCreatedBy(actor);
-        User saved = userRepository.save(u);
-        emailService.sendNewUserPasswordEmail(saved, tempPassword, frontendUrl + "/login");
-        return saved;
     }
 
     /**
@@ -214,22 +217,67 @@ public class UserService {
     }
 
     /**
-     * Reactiva un usuario previamente dado de baja en vez de crear un registro duplicado,
-     * cuando el correo del alta ya pertenecía a una cuenta desactivada — conserva su historial
-     * (ventas, cortes de caja, auditoría) bajo el mismo id en vez de perderlo. Misma validación
-     * de jerarquía de rol/tienda y misma mecánica de contraseña temporal por correo que un alta
-     * nueva (ver {@link #create}).
+     * Da de alta un usuario nuevo — o, si el correo pertenece a uno ya existente pero
+     * DESACTIVADO, lo reactiva en vez de crear un registro duplicado (conserva su historial).
      *
-     * @param existing usuario desactivado a reactivar
-     * @param req nuevos datos (nombre, rol, tienda deseada)
-     * @param actor usuario que hace el alta; queda registrado como {@code createdBy}
-     * @return el usuario reactivado
+     * <p>La contraseña NUNCA la captura quien da de alta: siempre se genera una temporal al
+     * azar y se le manda por correo, marcando {@link User#getMustChangePassword()}. Si el
+     * rol es SUPERVISOR (solo SUPER_ADMIN puede asignarlo), el usuario queda sin tienda
+     * propia y en la misma operación se le asignan las tiendas que va a administrar y el
+     * máximo de tiendas de su plan.</p>
+     *
+     * @param req datos del usuario nuevo
+     * @param actor usuario que lo da de alta; queda registrado como {@code createdBy}
+     * @return el usuario creado o reactivado
+     * @throws FieldConflictException (campo {@code email}) si el correo ya está registrado y ACTIVO
+     */
+    @Transactional
+    public User create(UserRequest req, User actor) {
+        Optional<User> existing = userRepository.findByEmail(req.getEmail());
+        if (existing.isPresent()) {
+            User found = existing.get();
+            if (Boolean.TRUE.equals(found.getIsActive())) {
+                throw new FieldConflictException("email", "El correo ya está registrado");
+            }
+            return reactivate(found, req, actor);
+        }
+        Role role = roleService.findById(req.getRoleId(), actor);
+        assertCanAssignRole(role, actor);
+        Tienda tienda = resolveTiendaForWrite(req, actor, role);
+        if (tienda == null && !isPlatformRole(role)) {
+            throw new IllegalStateException("Elige una tienda para poder dar de alta un usuario");
+        }
+        role = reconcileRoleForTienda(role, tienda);
+        String tempPassword = generateTempPassword();
+        User u = new User();
+        u.setName(req.getName());
+        u.setEmail(req.getEmail());
+        u.setPassword(passwordEncoder.encode(tempPassword));
+        u.setMustChangePassword(true);
+        u.setRole(role);
+        u.setTienda(tienda);
+        u.setIsActive(true);
+        u.setCreatedBy(actor);
+        User saved = userRepository.save(u);
+        applyMaxTiendas(saved, req.getMaxTiendas(), actor);
+        applySupervisedTiendas(saved, req.getSupervisedTiendaIds(), actor);
+        emailService.sendNewUserPasswordEmail(saved, tempPassword, frontendUrl + "/login");
+        return saved;
+    }
+
+    /**
+     * Reactiva un usuario previamente dado de baja sobre EL MISMO registro (mismo id), con
+     * la misma validación de jerarquía/tienda y la misma mecánica de contraseña temporal
+     * por correo que un alta nueva (ver {@link #create}).
      */
     private User reactivate(User existing, UserRequest req, User actor) {
         Role role = roleService.findById(req.getRoleId(), actor);
         assertCanAssignRole(role, actor);
-        Tienda tienda = resolveTiendaForWrite(req, actor);
-        assertRoleMatchesTienda(role, tienda);
+        Tienda tienda = resolveTiendaForWrite(req, actor, role);
+        if (tienda == null && !isPlatformRole(role)) {
+            throw new IllegalStateException("Elige una tienda para poder reactivar este usuario");
+        }
+        role = reconcileRoleForTienda(role, tienda);
         String tempPassword = generateTempPassword();
         existing.setName(req.getName());
         existing.setPassword(passwordEncoder.encode(tempPassword));
@@ -239,16 +287,17 @@ public class UserService {
         existing.setIsActive(true);
         existing.setDeletedBy(null);
         existing.setDeletedAt(null);
-        existing.setCreatedBy(actor);
+        existing.setUpdatedBy(actor);
         User saved = userRepository.save(existing);
+        applyMaxTiendas(saved, req.getMaxTiendas(), actor);
+        applySupervisedTiendas(saved, req.getSupervisedTiendaIds(), actor);
         emailService.sendNewUserPasswordEmail(saved, tempPassword, frontendUrl + "/login");
         return saved;
     }
 
     /**
      * Genera una contraseña temporal aleatoria y criptográficamente segura, para dar de
-     * alta un usuario nuevo (ver {@link #create}). Evita caracteres ambiguos (0/O, 1/l/I)
-     * para que, si alguien la teclea a mano leyéndola del correo, no dude entre cuál es cuál.
+     * alta un usuario nuevo (ver {@link #create}).
      */
     private String generateTempPassword() {
         StringBuilder sb = new StringBuilder(TEMP_PASSWORD_LENGTH);
@@ -261,23 +310,25 @@ public class UserService {
     /**
      * Actualiza los datos de un usuario existente.
      *
-     * <p>La contraseña solo se actualiza si viene un valor no vacío en el request
-     * (dejar el campo en blanco significa "no cambiar la contraseña") — y cuando el admin
-     * SÍ la cambia por esta vía, igual que al dar de alta, el usuario no la eligió, así que
-     * también queda marcado {@link User#getMustChangePassword()}{@code =true}. El cambio de
-     * tienda de un usuario solo lo puede hacer un SUPER_ADMIN; para cualquier otro actor
-     * ese campo se ignora aunque venga en el request.</p>
+     * <p>La contraseña solo se actualiza si viene un valor no vacío (y queda marcado
+     * {@code mustChangePassword}). Ascender a alguien a un rol de plataforma le quita su
+     * tienda fija; bajarlo de uno le asigna la tienda indicada (o en la que esté actuando
+     * quien edita). El cambio de tienda solo lo puede hacer SUPER_ADMIN (a cualquiera) o
+     * SUPERVISOR (solo a una de las suyas), y se rechaza si el usuario tiene un corte de
+     * caja abierto.</p>
      *
      * @param id id del usuario a actualizar
-     * @param req nuevos valores: nombre, correo, contraseña opcional, rol opcional,
-     *            tienda opcional (solo aplica si el actor es SUPER_ADMIN)
-     * @param actor usuario que hace el cambio; debe tener acceso a la tienda del usuario
-     *              objetivo; queda registrado como {@code updatedBy}
+     * @param req nuevos valores
+     * @param actor usuario que hace el cambio; queda registrado como {@code updatedBy}
      * @return el usuario actualizado
      */
+    @Transactional
     public User update(Long id, UserRequest req, User actor) {
         User u = findById(id, actor);
         assertCanManage(u, actor);
+        userRepository.findByEmail(req.getEmail())
+                .filter(other -> !other.getId().equals(u.getId()))
+                .ifPresent(other -> { throw new FieldConflictException("email", "El correo ya está registrado"); });
         u.setName(req.getName());
         u.setEmail(req.getEmail());
         if (req.getPassword() != null && !req.getPassword().isBlank()) {
@@ -285,45 +336,81 @@ public class UserService {
             u.setPassword(passwordEncoder.encode(req.getPassword()));
             u.setMustChangePassword(true);
         }
-        Role newRole = u.getRole();
         if (req.getRoleId() != null) {
-            newRole = roleService.findById(req.getRoleId(), actor);
-            if (!newRole.getId().equals(u.getRole().getId())) assertCanAssignRole(newRole, actor);
+            Role role = roleService.findById(req.getRoleId(), actor);
+            // Editar su PROPIO rol no pasa por la jerarquía (assertCanManage ya lo exceptúa).
+            if (!u.getId().equals(actor.getId()) && !role.getId().equals(u.getRole().getId())) {
+                assertCanAssignRole(role, actor);
+            }
+            u.setRole(role);
+            // Un Supervisor no tiene tienda propia: la administra vía Tienda.supervisor.
+            if (isPlatformRole(role)) u.setTienda(null);
         }
-        Tienda newTienda = u.getTienda();
-        if (tenantScope.isSuperAdmin(actor) && req.getTiendaId() != null) {
-            newTienda = resolveTienda(req.getTiendaId());
+        if (req.getTiendaId() != null && !isPlatformRole(u.getRole()) && tenantScope.isPlatformActor(actor)) {
+            if (!tenantScope.canManageTienda(actor, req.getTiendaId())) {
+                throw new AccessDeniedException("Esa tienda no está bajo tu administración");
+            }
+            Tienda target = resolveTienda(req.getTiendaId());
+            Long currentTiendaId = u.getTienda() != null ? u.getTienda().getId() : null;
+            // Un corte abierto queda ligado a la tienda donde se abrió: mover a quien lo
+            // abrió lo dejaría huérfano, sin nadie en esa tienda que pueda cerrarlo.
+            if (!target.getId().equals(currentTiendaId)
+                    && cashCutRepository.findFirstByUserIdAndStatus(u.getId(), CashCutStatus.OPEN).isPresent()) {
+                throw new IllegalStateException(
+                        "No puedes cambiar de tienda a un usuario con un corte de caja abierto. Ciérralo primero.");
+            }
+            u.setTienda(target);
+        } else if (!isPlatformRole(u.getRole()) && u.getTienda() == null) {
+            // Se le quitó (o nunca tuvo) una tienda y su rol actual SÍ la necesita — típicamente
+            // al "bajar" a alguien de SUPERVISOR a un rol normal sin mandar tiendaId. Sin esto
+            // quedaría con rol normal y tienda null, que varias consultas leen como "sin filtro".
+            Tienda fallback = tenantScope.tiendaForWrite(actor);
+            if (fallback == null) {
+                throw new IllegalStateException("Elige una tienda para poder asignarle este rol a este usuario");
+            }
+            u.setTienda(fallback);
         }
-        assertRoleMatchesTienda(newRole, newTienda);
-        u.setRole(newRole);
-        u.setTienda(newTienda);
+        // Las filas de Role están duplicadas por tienda: si el usuario terminó en otra tienda,
+        // se le reasigna el rol del MISMO NOMBRE de su tienda nueva.
+        u.setRole(reconcileRoleForTienda(u.getRole(), u.getTienda()));
         u.setUpdatedBy(actor);
-        return userRepository.save(u);
+        User saved = userRepository.save(u);
+        applyMaxTiendas(saved, req.getMaxTiendas(), actor);
+        applySupervisedTiendas(saved, req.getSupervisedTiendaIds(), actor);
+        return saved;
     }
 
-    // SUPER_ADMIN puede asignar cualquier tienda (o dejar sin tienda); cualquier otro rol
-    // siempre da de alta usuarios dentro de su propia tienda, sin importar lo que venga en el request.
     /**
-     * Determina a qué tienda queda asignado un usuario nuevo, según el rol del actor
-     * que lo está creando (ver regla de negocio en el comentario anterior).
-     *
-     * @param req request de alta, con la tienda solicitada (solo se respeta para SUPER_ADMIN)
-     * @param actor usuario que da de alta al nuevo usuario
-     * @return la tienda resuelta para el usuario nuevo (puede ser null solo si el actor
-     *         es SUPER_ADMIN y no especificó tienda)
+     * Determina a qué tienda queda asignado un usuario nuevo: ninguna si el rol es de
+     * plataforma; para SUPER_ADMIN, la del request (o la que esté actuando); para
+     * SUPERVISOR, la que esté actuando (verificada como suya); para el resto, la propia.
      */
-    private Tienda resolveTiendaForWrite(UserRequest req, User actor) {
+    private Tienda resolveTiendaForWrite(UserRequest req, User actor, Role role) {
+        if (isPlatformRole(role)) return null;
         if (tenantScope.isSuperAdmin(actor)) {
-            return req.getTiendaId() != null ? resolveTienda(req.getTiendaId()) : null;
+            return req.getTiendaId() != null ? resolveTienda(req.getTiendaId()) : tenantScope.tiendaForWrite(actor);
         }
         if (tenantScope.isSupervisor(actor)) {
-            Tienda tienda = tenantScope.tiendaForWrite(actor);
-            if (tienda == null) {
-                throw new IllegalStateException("Selecciona una tienda antes de dar de alta usuarios");
-            }
-            return tienda;
+            return tenantScope.tiendaForWrite(actor);
         }
         return actor.getTienda();
+    }
+
+    /**
+     * Si el rol dado no pertenece a la tienda dada, lo reemplaza por el rol del MISMO NOMBRE
+     * en esa tienda (las filas de {@link Role} están duplicadas por tienda). Sin cambios para
+     * roles de plataforma ni cuando {@code tienda} es {@code null}.
+     *
+     * @throws IllegalStateException si la tienda destino no tiene un rol con ese nombre
+     */
+    private Role reconcileRoleForTienda(Role role, Tienda tienda) {
+        if (role == null || tienda == null || isPlatformRole(role)) return role;
+        Long roleTiendaId = role.getTienda() != null ? role.getTienda().getId() : null;
+        if (tienda.getId().equals(roleTiendaId)) return role;
+        return roleRepository.findByNameAndTiendaId(role.getName(), tienda.getId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "La tienda elegida no tiene un rol llamado \"" + role.getName()
+                                + "\" — créalo ahí primero o elige un rol distinto."));
     }
 
     // BCrypt (usado por PasswordEncoder) ignora silenciosamente cualquier caracter después
@@ -331,13 +418,65 @@ public class UserService {
     // de ese punto se validarían como iguales al hacer login.
     private void validatePasswordLength(String password) {
         if (password.length() < 6 || password.length() > 72) {
-            throw new IllegalArgumentException("La contraseña debe tener entre 6 y 72 caracteres");
+            throw new FieldConflictException("password", "La contraseña debe tener entre 6 y 72 caracteres");
         }
     }
 
     private Tienda resolveTienda(Long tiendaId) {
         return tiendaRepository.findById(tiendaId)
                 .orElseThrow(() -> new IllegalArgumentException("Tienda no encontrada: " + tiendaId));
+    }
+
+    /**
+     * Fija el máximo de tiendas del plan contratado de un SUPERVISOR (null = sin límite).
+     * Solo lo puede hacer SUPER_ADMIN; si el usuario ya no es SUPERVISOR, se limpia.
+     */
+    private void applyMaxTiendas(User target, Integer maxTiendas, User actor) {
+        if (!tenantScope.isSuperAdmin(actor)) return;
+        Integer next = isSupervisorRole(target.getRole()) ? maxTiendas : null;
+        if (!Objects.equals(target.getMaxTiendas(), next)) {
+            target.setMaxTiendas(next);
+            userRepository.save(target);
+        }
+    }
+
+    /**
+     * Aplica (reemplazando por completo) el conjunto de tiendas que un usuario SUPERVISOR
+     * administra. Si el usuario YA NO es SUPERVISOR, le quita todas las que tuviera, para
+     * que no queden "supervisadas por" alguien que ya no lo es.
+     *
+     * @param target usuario ya guardado
+     * @param supervisedTiendaIds tiendas deseadas; {@code null} = no tocar la asignación
+     *                            actual; lista vacía = quitarle todas
+     * @param actor quien hace el cambio; se ignora silenciosamente si no es SUPER_ADMIN
+     */
+    private void applySupervisedTiendas(User target, List<Long> supervisedTiendaIds, User actor) {
+        if (!tenantScope.isSuperAdmin(actor)) return;
+        if (!isSupervisorRole(target.getRole())) {
+            for (Tienda t : tiendaRepository.findBySupervisorIdOrderByNameAsc(target.getId())) {
+                t.setSupervisor(null);
+                tiendaRepository.save(t);
+            }
+            return;
+        }
+        if (supervisedTiendaIds == null) return;
+
+        List<Tienda> current = tiendaRepository.findBySupervisorIdOrderByNameAsc(target.getId());
+        List<Tienda> desired = supervisedTiendaIds.isEmpty() ? List.of() : tiendaRepository.findAllById(supervisedTiendaIds);
+
+        for (Tienda t : current) {
+            if (desired.stream().noneMatch(d -> d.getId().equals(t.getId()))) {
+                t.setSupervisor(null);
+                tiendaRepository.save(t);
+            }
+        }
+        for (Tienda t : desired) {
+            Long currentSupervisorId = t.getSupervisor() != null ? t.getSupervisor().getId() : null;
+            if (!target.getId().equals(currentSupervisorId)) {
+                t.setSupervisor(target);
+                tiendaRepository.save(t);
+            }
+        }
     }
 
     /**
@@ -352,7 +491,7 @@ public class UserService {
         assertCanManage(u, actor);
         u.setIsActive(false);
         u.setDeletedBy(actor);
-        u.setDeletedAt(java.time.LocalDateTime.now());
+        u.setDeletedAt(LocalDateTime.now());
         userRepository.save(u);
     }
 }
