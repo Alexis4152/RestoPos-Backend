@@ -65,6 +65,14 @@ public class Mesa {
     @Builder.Default
     private Boolean isActive = true;
 
+    // Mesa temporal ("Temporal 1", "Temporal 2"...): se abre cuando todas las mesas están
+    // ocupadas y desaparece sola (baja lógica) al liberarse — al cobrar, cancelar, mover la
+    // orden a otra mesa o separarla. La fila se conserva, así que en Ventas sigue apareciendo
+    // con su nombre. Ver OrdenService#abrirMesaTemporal.
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    @Builder.Default
+    private Boolean temporal = false;
+
     @JsonIgnoreProperties({"role", "tienda", "createdBy", "updatedBy", "deletedBy"})
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by_user_id")

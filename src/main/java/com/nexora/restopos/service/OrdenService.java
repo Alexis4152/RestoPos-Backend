@@ -50,6 +50,7 @@ public class OrdenService {
     private final ComensalRepository comensalRepository;
     private final OrdenDetalleRepository ordenDetalleRepository;
     private final MesaRepository mesaRepository;
+    private final com.nexora.restopos.repository.ZonaRepository zonaRepository;
     private final CuentaRepository cuentaRepository;
     private final com.nexora.restopos.repository.PagoRepository pagoRepository;
     private final ProductService productService;
@@ -655,6 +656,61 @@ public class OrdenService {
         return o;
     }
 
+    /**
+     * Abre una <b>mesa temporal</b> con su orden, para cuando ya no queda ninguna mesa libre:
+     * se crea una mesa "Temporal N" (el número más bajo que no esté en uso en ese momento) en la
+     * zona indicada, sin límite de lugares, y se abre la orden sobre ella. Al liberarse (cobrar,
+     * cancelar, mover o separar) la mesa se da de baja sola; en Ventas sigue apareciendo con su
+     * nombre ("Mesa Temporal 1").
+     *
+     * @throws IllegalStateException si todavía hay alguna mesa normal libre
+     */
+    @Transactional
+    public Orden abrirMesaTemporal(OrdenCreateRequest req, User actor) {
+        Tienda tienda = tenantScope.tiendaForWrite(actor);
+        if (tienda == null) throw new IllegalStateException("Elige una tienda para poder abrir una mesa");
+        List<Mesa> activas = mesaRepository.findAllForTienda(tienda.getId());
+        boolean hayLibre = activas.stream()
+                .anyMatch(m -> !Boolean.TRUE.equals(m.getTemporal()) && m.getOrdenActiva() == null && m.getEstado() == MesaEstado.DISPONIBLE);
+        if (hayLibre) throw new IllegalStateException("Todavía hay mesas libres: abre una de ellas");
+        Zona zona = req.getZonaId() != null
+                ? zonaRepository.findById(req.getZonaId())
+                        .filter(z -> z.getTienda() != null && z.getTienda().getId().equals(tienda.getId()))
+                        .orElseThrow(() -> new IllegalArgumentException("Zona no encontrada"))
+                : zonaRepository.findFirstByTiendaIdAndIsActiveTrueOrderByNombreAsc(tienda.getId()).orElse(null);
+        java.util.Set<String> enUso = activas.stream().map(Mesa::getNumero).collect(Collectors.toSet());
+        int n = 1;
+        while (enUso.contains("Temporal " + n)) n++;
+        Mesa mesa = mesaRepository.save(Mesa.builder()
+                .numero("Temporal " + n)
+                .temporal(true)
+                .reservable(false)
+                .zona(zona)
+                .tienda(tienda)
+                .estado(MesaEstado.DISPONIBLE)
+                .createdBy(actor)
+                .build());
+        req.setMesaId(mesa.getId());
+        req.setTipoEntrega(null);
+        Orden orden = abrir(req, actor);
+        auditoriaService.log(actor, "MESA_TEMPORAL", "Orden", orden.getId(), null, mesa.getNumero(), "Todas las mesas ocupadas");
+        return orden;
+    }
+
+    /**
+     * Deja una mesa libre. Si es temporal, además se da de baja: ya no hace falta y no debe
+     * quedarse en el plano (la fila se conserva para el historial de ventas).
+     */
+    private void dejarLibre(Mesa mesa) {
+        mesa.setEstado(MesaEstado.DISPONIBLE);
+        mesa.setOrdenActiva(null);
+        if (Boolean.TRUE.equals(mesa.getTemporal())) {
+            mesa.setIsActive(false);
+            mesa.setDeletedAt(LocalDateTime.now());
+        }
+        mesaRepository.save(mesa);
+    }
+
     @Transactional
     public Orden abrir(OrdenCreateRequest req, User actor) {
         Mesa mesa = null;
@@ -775,7 +831,9 @@ public class OrdenService {
         c.setNumero(siguiente);
         c.setNombre(req.getNombre());
         Comensal saved = comensalRepository.save(c);
-        orden.setNumeroComensales(siguiente);
+        // Personas sentadas = comensales que existen (no el número más alto: si se quitó uno
+        // de en medio, "Comensal 4" puede ser apenas la 3a persona).
+        orden.setNumeroComensales(comensalRepository.countByOrdenId(ordenId));
         ordenRepository.save(orden);
         return saved;
     }
@@ -811,6 +869,10 @@ public class OrdenService {
         // a secas, la colección de `orden` (todavía en el contexto de persistencia con este
         // comensal adentro) lo vuelve a insertar por el cascade=ALL al final de la transacción.
         orden.getComensales().remove(comensal);
+        // Sin esto el contador de personas (Mesas, modo rápido, "X de Y lugares") seguía
+        // mostrando las de antes de quitarlo.
+        orden.setNumeroComensales(orden.getComensales().size());
+        ordenRepository.save(orden);
     }
 
     @Transactional
@@ -1305,10 +1367,8 @@ public class OrdenService {
         validarCupo(nuevoGrupo, Math.max(1, orden.getComensales().size()), "esta orden tiene");
         destino.setEstado(origen.getEstado() == MesaEstado.PENDIENTE_PAGO ? MesaEstado.PENDIENTE_PAGO : MesaEstado.OCUPADA);
         destino.setOrdenActiva(orden);
-        origen.setEstado(MesaEstado.DISPONIBLE);
-        origen.setOrdenActiva(null);
-        mesaRepository.save(origen);
         mesaRepository.save(destino);
+        dejarLibre(origen);
         orden.setMesa(destino);
         Orden saved = ordenRepository.save(orden);
         auditoriaService.log(actor, "MOVER_MESA", "Orden", saved.getId(), "Mesa " + origen.getNumero(), "Mesa " + destino.getNumero(), null);
@@ -1319,9 +1379,7 @@ public class OrdenService {
         if (orden.getMesa() == null) return;
         // La principal y las que se le unieron (ver #unirMesa).
         for (Mesa mesa : mesasDe(orden)) {
-            mesa.setEstado(MesaEstado.DISPONIBLE);
-            mesa.setOrdenActiva(null);
-            mesaRepository.save(mesa);
+            dejarLibre(mesa);
         }
     }
 
@@ -1422,7 +1480,6 @@ public class OrdenService {
         boolean estaConCuentasPendientes = cuentaRepository.findByOrdenIdOrderByCreatedAtAsc(orden.getId()).stream()
                 .anyMatch(c -> c.getEstado() == CuentaEstado.PENDIENTE);
         int desplazar = orden.getComensales().stream().mapToInt(c -> c.getNumero() == null ? 0 : c.getNumero()).max().orElse(0);
-        int comensalesOtra = otra.getNumeroComensales() == null ? 0 : otra.getNumeroComensales();
         String mesasOtra = mesasDe(otra).stream().map(Mesa::getNumero).collect(Collectors.joining(", "));
 
         // Se guarda todo lo pendiente y se mueven productos y comensales en bloque (sin pasar
@@ -1440,7 +1497,9 @@ public class OrdenService {
             m.setEstado(estaConCuentasPendientes ? MesaEstado.PENDIENTE_PAGO : estadoPrincipal);
             mesaRepository.save(m);
         }
-        principal.setNumeroComensales((principal.getNumeroComensales() == null ? 0 : principal.getNumeroComensales()) + comensalesOtra);
+        // Los comensales ya se movieron en bloque: se cuentan los que de verdad quedaron (sumar
+        // los dos contadores arrastraba cualquier desfase que trajera alguna de las órdenes).
+        principal.setNumeroComensales(comensalRepository.countByOrdenId(principal.getId()));
         if (principal.getMesero() == null) principal.setMesero(vacia.getMesero());
         recomputeTotals(principal);
         Orden saved = ordenRepository.save(principal);
@@ -1471,9 +1530,7 @@ public class OrdenService {
         }
         List<Mesa> quedan = mesasDe(orden).stream().filter(m -> !m.getId().equals(mesa.getId())).toList();
         validarCupo(quedan, Math.max(1, orden.getComensales().size()), "al separar quedarían");
-        mesa.setOrdenActiva(null);
-        mesa.setEstado(MesaEstado.DISPONIBLE);
-        mesaRepository.save(mesa);
+        dejarLibre(mesa);
         auditoriaService.log(actor, "SEPARAR_MESA", "Orden", orden.getId(), "Mesa " + mesa.getNumero(), null, null);
         return orden;
     }

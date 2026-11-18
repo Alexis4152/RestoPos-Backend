@@ -103,6 +103,13 @@ public class OrdenController {
         return ResponseEntity.ok(ApiResponse.ok(ordenService.findById(id, actor), null));
     }
 
+    /** Todas las mesas están ocupadas: abre una mesa temporal ("Temporal N") con su orden. */
+    @PostMapping("/mesa-temporal")
+    public ResponseEntity<ApiResponse<Orden>> abrirMesaTemporal(@Valid @RequestBody OrdenCreateRequest req,
+                                                                 @AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(ordenService.abrirMesaTemporal(req, actor), "Mesa temporal abierta"));
+    }
+
     @PostMapping
     public ResponseEntity<ApiResponse<Orden>> abrir(@Valid @RequestBody OrdenCreateRequest req,
                                                      @AuthenticationPrincipal User actor) {

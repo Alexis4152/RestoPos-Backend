@@ -117,6 +117,31 @@ public class TiendaController {
         return ResponseEntity.ok(ApiResponse.ok(null, "Tienda desactivada"));
     }
 
+    /**
+     * Quién imprime la cuenta por pagar en esta tienda: CAJERO, MESERO o AMBOS (ADMIN/SUPERVISOR
+     * siempre pueden). Configuración de plataforma: exclusiva de SUPER_ADMIN.
+     */
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PutMapping("/{id}/imprime-cuenta")
+    public ResponseEntity<ApiResponse<Tienda>> updateImprimeCuenta(
+            @PathVariable Long id,
+            @RequestBody java.util.Map<String, String> body,
+            @AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                tiendaService.updateImprimeCuenta(id, body.get("imprimeCuenta"), actor), "Configuración de impresión guardada"));
+    }
+
+    /** "Enviar a cocina" activo/inactivo en la tienda. Configuración de plataforma: solo SUPER_ADMIN. */
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PutMapping("/{id}/enviar-cocina")
+    public ResponseEntity<ApiResponse<Tienda>> updateEnviarACocina(
+            @PathVariable Long id,
+            @RequestBody java.util.Map<String, Boolean> body,
+            @AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                tiendaService.updateEnviarACocina(id, body.get("enviarACocina"), actor), "Envío a cocina guardado"));
+    }
+
     // El ADMIN de una tienda también puede cambiar SU propio color de marca —
     // este método sobreescribe el @PreAuthorize de la clase.
     /**

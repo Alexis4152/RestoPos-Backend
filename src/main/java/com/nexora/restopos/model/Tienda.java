@@ -101,6 +101,21 @@ public class Tienda {
     @Builder.Default
     private Integer propinaMaxPorcentaje = 50;
 
+    // Quién imprime la cuenta por pagar (las 2 copias cliente/comercio): CAJERO (quien cobra,
+    // con la sección Cortes de caja), MESERO (quien no cobra) o AMBOS. ADMIN, SUPERVISOR y
+    // SUPER_ADMIN siempre pueden. Solo lo cambia el SUPER_ADMIN (ver ImpresionCuentaPolicy).
+    @Column(nullable = false, length = 10, columnDefinition = "varchar(10) default 'CAJERO'")
+    @Builder.Default
+    private String imprimeCuenta = "CAJERO";
+
+    // Envío a cocina. true: el botón dice "Enviar a cocina" y la comanda sale en la impresora
+    // de COCINA (configurada en la estación de impresión). false: el botón dice "Crear orden" y
+    // la comanda sale en la impresora normal de tickets. La pantalla de Cocina funciona igual
+    // en ambos casos. Solo lo cambia el SUPER_ADMIN (ver ComandaService / ComandaTicketService).
+    @Column(nullable = false, columnDefinition = "boolean default true")
+    @Builder.Default
+    private Boolean enviarACocina = true;
+
     // El supervisor (dueño) recibe el reporte de fin de día de cada caja por default; puede
     // desactivarlo si prefiere que solo les llegue a los destinatarios que configuró (ver
     // CashReportRecipient / CashReportRecipientService).

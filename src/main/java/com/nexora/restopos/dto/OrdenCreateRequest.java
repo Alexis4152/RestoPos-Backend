@@ -38,4 +38,8 @@ public class OrdenCreateRequest {
     //  RECOGER     — pidió por teléfono y viene por él: nombre y teléfono;
     //  DOMICILIO   — se le lleva: nombre, teléfono y dirección (+ costo de envío).
     private String tipoEntrega;
+
+    // Solo para abrir una mesa temporal (ver OrdenService#abrirMesaTemporal): zona donde se
+    // pone. null = la primera zona de la tienda.
+    private Long zonaId;
 }

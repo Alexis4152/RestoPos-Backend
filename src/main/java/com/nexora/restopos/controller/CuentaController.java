@@ -34,6 +34,7 @@ public class CuentaController {
     private final TicketPdfService ticketPdfService;
     private final EscPosTicketService escPosTicketService;
     private final EmailService emailService;
+    private final com.nexora.restopos.service.ImpresionCuentaPolicy impresionCuentaPolicy;
 
     @PostMapping("/api/orders/{ordenId}/accounts")
     @PreAuthorize("@sectionAccess.check('ORDERS')")
@@ -73,6 +74,7 @@ public class CuentaController {
     @PreAuthorize("@sectionAccess.check('ORDERS')")
     public ResponseEntity<byte[]> ticket(@PathVariable Long id, @AuthenticationPrincipal User actor) {
         Cuenta cuenta = cuentaService.findById(id, actor);
+        impresionCuentaPolicy.assertPuedeImprimir(cuenta, actor);
         byte[] pdf = ticketPdfService.generate(cuenta);
         String folio = cuenta.getTicketFolio() != null ? cuenta.getTicketFolio() : String.valueOf(cuenta.getId());
         return ResponseEntity.ok()
@@ -91,9 +93,15 @@ public class CuentaController {
     @PreAuthorize("@sectionAccess.checkAny('ORDERS', 'SALES')")
     public ResponseEntity<ApiResponse<String>> ticketEscPos(@PathVariable Long id,
                                                             @RequestParam(defaultValue = "1") int copias,
+                                                            @RequestParam(defaultValue = "true") boolean abrirCajon,
+                                                            @RequestParam(defaultValue = "false") boolean soloCajon,
                                                             @AuthenticationPrincipal User actor) {
         Cuenta cuenta = cuentaService.findById(id, actor);
-        return ResponseEntity.ok(ApiResponse.ok(escPosTicketService.build(cuenta, copias)));
+        if (!soloCajon) impresionCuentaPolicy.assertPuedeImprimir(cuenta, actor);
+        // soloCajon: al cobrar ya no se imprime ticket, solo se abre el cajón si hubo efectivo.
+        // abrirCajon=false: reimpresión después de cobrar, sin volver a abrir el cajón.
+        String hex = soloCajon ? escPosTicketService.soloCajon(cuenta) : escPosTicketService.build(cuenta, copias, abrirCajon);
+        return ResponseEntity.ok(ApiResponse.ok(hex));
     }
 
     @PostMapping("/api/accounts/{id}/ticket/email")

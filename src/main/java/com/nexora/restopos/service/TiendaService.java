@@ -207,6 +207,35 @@ public class TiendaService {
         tiendaRepository.save(t);
     }
 
+    /**
+     * Fija quién imprime la cuenta por pagar en esta tienda (CAJERO, MESERO o AMBOS). Solo
+     * SUPER_ADMIN (lo restringe el controller); ver {@link ImpresionCuentaPolicy}.
+     *
+     * @throws IllegalArgumentException si el valor no es uno de los tres permitidos
+     */
+    public Tienda updateImprimeCuenta(Long id, String imprimeCuenta, User actor) {
+        Tienda t = findById(id);
+        String modo = imprimeCuenta == null ? "" : imprimeCuenta.trim().toUpperCase();
+        if (!ImpresionCuentaPolicy.MODOS.contains(modo)) {
+            throw new IllegalArgumentException("Elige quién imprime la cuenta: CAJERO, MESERO o AMBOS");
+        }
+        t.setImprimeCuenta(modo);
+        t.setUpdatedBy(actor);
+        return tiendaRepository.save(t);
+    }
+
+    /**
+     * Activa o desactiva "Enviar a cocina" en la tienda (botón y a qué impresora sale la
+     * comanda). Solo SUPER_ADMIN (lo restringe el controller).
+     */
+    public Tienda updateEnviarACocina(Long id, Boolean enviarACocina, User actor) {
+        if (enviarACocina == null) throw new IllegalArgumentException("Indica si se envía a cocina");
+        Tienda t = findById(id);
+        t.setEnviarACocina(enviarACocina);
+        t.setUpdatedBy(actor);
+        return tiendaRepository.save(t);
+    }
+
     // El color de marca lo puede cambiar el SUPER_ADMIN (cualquier tienda) o el ADMIN
     // de esa misma tienda — nunca el ADMIN de otra tienda.
     /**

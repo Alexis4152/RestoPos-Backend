@@ -82,6 +82,16 @@ public class EscPosTicketService {
      * @param copias de 1 a 3 (fuera de rango se ajusta)
      */
     public String build(Cuenta cuenta, int copias) {
+        return build(cuenta, copias, true);
+    }
+
+    /**
+     * Igual que {@link #build(Cuenta, int)}, pero permite NO abrir el cajón — para reimprimir
+     * después de cobrar (el cajón ya se abrió al registrar el pago, ver {@link #soloCajon}).
+     *
+     * @param abrirCajon {@code false} para no agregar el pulso del cajón aunque haya efectivo
+     */
+    public String build(Cuenta cuenta, int copias, boolean abrirCajon) {
         int n = Math.max(1, Math.min(copias, 3));
         boolean porPagar = cuenta.getEstado() == CuentaEstado.PENDIENTE;
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
@@ -92,9 +102,27 @@ public class EscPosTicketService {
         }
         // Solo se abre el cajon si hubo al menos un pago en efectivo (ver Javadoc de build()).
         // ESC p m t1 t2 : pulso al pin 2 del conector RJ11 del cajon (m=0).
-        if (huboEfectivo) {
+        if (huboEfectivo && abrirCajon) {
             ctl(buf, 0x1B, 0x70, 0x00, 0x19, 0xFA);
         }
+        return toHex(buf.toByteArray());
+    }
+
+    /**
+     * Solo el pulso que abre el cajón de dinero, SIN imprimir nada — al cobrar, el cajero ya no
+     * imprime ticket (el mesero imprimió la cuenta en 2 copias), pero el cajón se tiene que
+     * abrir para guardar el efectivo y dar cambio.
+     *
+     * @return el comando en hexadecimal, o cadena vacía si la cuenta no tiene ningún pago en
+     *         efectivo vigente (con tarjeta/transferencia no hay nada que abrir)
+     */
+    public String soloCajon(Cuenta cuenta) {
+        boolean huboEfectivo = cuenta.getPagos().stream()
+                .anyMatch(p -> !Boolean.TRUE.equals(p.getCancelado()) && p.getMetodo() == PaymentMethod.CASH);
+        if (!huboEfectivo) return "";
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        ctl(buf, 0x1B, 0x40);                         // ESC @ : inicializa la impresora
+        ctl(buf, 0x1B, 0x70, 0x00, 0x19, 0xFA);       // ESC p : pulso al cajón
         return toHex(buf.toByteArray());
     }
 
