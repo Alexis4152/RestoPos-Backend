@@ -211,4 +211,31 @@ public class MesaService {
         m.setDeletedAt(LocalDateTime.now());
         mesaRepository.save(m);
     }
+
+    /**
+     * Desactiva varias mesas de un golpe. Todo o nada: si alguna tiene una orden abierta (o no
+     * es de la tienda), no se desactiva ninguna y se dice cuáles impiden hacerlo.
+     *
+     * @return cuántas mesas se desactivaron
+     * @throws IllegalStateException si alguna tiene orden abierta (las lista)
+     */
+    @org.springframework.transaction.annotation.Transactional
+    public int deactivateMany(java.util.Collection<Long> ids, User actor) {
+        if (ids == null || ids.isEmpty()) throw new IllegalArgumentException("Elige al menos una mesa");
+        if (ids.size() > 500) throw new IllegalArgumentException("Máximo 500 mesas a la vez");
+        List<Mesa> mesas = ids.stream().distinct().map(id -> findById(id, actor)).toList();
+        List<String> ocupadas = mesas.stream().filter(m -> m.getOrdenActiva() != null).map(Mesa::getNumero).toList();
+        if (!ocupadas.isEmpty()) {
+            throw new IllegalStateException("No se pueden desactivar mesas con una orden abierta: "
+                    + String.join(", ", ocupadas) + ". Ciérralas o quítalas de la selección.");
+        }
+        LocalDateTime ahora = LocalDateTime.now();
+        for (Mesa m : mesas) {
+            m.setIsActive(false);
+            m.setDeletedBy(actor);
+            m.setDeletedAt(ahora);
+            mesaRepository.save(m);
+        }
+        return mesas.size();
+    }
 }

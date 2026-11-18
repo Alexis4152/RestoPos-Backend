@@ -65,6 +65,15 @@ public class MesaController {
         return ResponseEntity.ok(ApiResponse.ok(null, "Mesas para reservar actualizadas"));
     }
 
+    /** Desactiva varias mesas de un golpe. Body: {"mesaIds": [1, 4, 7]}. Todo o nada. */
+    @PostMapping("/desactivar")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPERVISOR', 'SUPER_ADMIN')")
+    public ResponseEntity<ApiResponse<Integer>> deactivateMany(@RequestBody java.util.Map<String, java.util.List<Long>> body,
+                                                               @AuthenticationPrincipal User actor) {
+        int n = mesaService.deactivateMany(body.get("mesaIds"), actor);
+        return ResponseEntity.ok(ApiResponse.ok(n, n + (n == 1 ? " mesa desactivada" : " mesas desactivadas")));
+    }
+
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAnyRole('ADMIN', 'SUPERVISOR', 'SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<Void>> deactivate(@PathVariable Long id, @AuthenticationPrincipal User actor) {
