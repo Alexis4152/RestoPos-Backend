@@ -39,20 +39,20 @@ public class ZonaController {
     }
 
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPERVISOR', 'SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<Zona>> create(@Valid @RequestBody ZonaRequest req, @AuthenticationPrincipal User actor) {
         return ResponseEntity.ok(ApiResponse.ok(zonaService.create(req, actor), "Zona creada"));
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPERVISOR', 'SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<Zona>> update(@PathVariable Long id, @Valid @RequestBody ZonaRequest req,
                                                      @AuthenticationPrincipal User actor) {
         return ResponseEntity.ok(ApiResponse.ok(zonaService.update(id, req, actor), "Zona actualizada"));
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPERVISOR', 'SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long id, @AuthenticationPrincipal User actor) {
         zonaService.delete(id, actor);
         return ResponseEntity.ok(ApiResponse.ok(null, "Zona eliminada"));

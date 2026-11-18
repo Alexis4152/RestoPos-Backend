@@ -49,7 +49,10 @@ public class ZonaService {
     public Zona create(ZonaRequest req, User actor) {
         Zona z = new Zona();
         z.setNombre(req.getNombre());
-        z.setTienda(actor.getTienda());
+        // tiendaForWrite: un SUPERVISOR/SUPER_ADMIN no tiene tienda propia (ver MesaService#create).
+        com.nexora.restopos.model.Tienda tienda = tenantScope.tiendaForWrite(actor);
+        if (tienda == null) throw new IllegalStateException("Elige una tienda para poder dar de alta zonas");
+        z.setTienda(tienda);
         z.setCreatedBy(actor);
         return zonaRepository.save(z);
     }

@@ -35,13 +35,22 @@ public class MesaController {
     }
 
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPERVISOR', 'SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<Mesa>> create(@Valid @RequestBody MesaRequest req, @AuthenticationPrincipal User actor) {
         return ResponseEntity.ok(ApiResponse.ok(mesaService.create(req, actor), "Mesa creada"));
     }
 
+    /** Alta de varias mesas y/o zonas de un golpe (ver AltaMasivaMesasRequest). */
+    @PostMapping("/bulk")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPERVISOR', 'SUPER_ADMIN')")
+    public ResponseEntity<ApiResponse<java.util.Map<String, Integer>>> altaMasiva(
+            @Valid @RequestBody com.nexora.restopos.dto.AltaMasivaMesasRequest req, @AuthenticationPrincipal User actor) {
+        java.util.Map<String, Integer> r = mesaService.altaMasiva(req, actor);
+        return ResponseEntity.ok(ApiResponse.ok(r, r.get("mesasCreadas") + " mesa(s) y " + r.get("zonasCreadas") + " zona(s) creadas"));
+    }
+
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPERVISOR', 'SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<Mesa>> update(@PathVariable Long id, @Valid @RequestBody MesaRequest req,
                                                      @AuthenticationPrincipal User actor) {
         return ResponseEntity.ok(ApiResponse.ok(mesaService.update(id, req, actor), "Mesa actualizada"));
@@ -49,7 +58,7 @@ public class MesaController {
 
     /** Qué mesas se pueden reservar. Body: {"mesaIds": [1, 4, 7]} (las demás quedan sin reservar). */
     @PutMapping("/reservables")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPERVISOR', 'SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<Void>> reservables(@RequestBody java.util.Map<String, List<Long>> body,
                                                          @AuthenticationPrincipal User actor) {
         mesaService.setReservables(body == null ? List.of() : body.getOrDefault("mesaIds", List.of()), actor);
@@ -57,7 +66,7 @@ public class MesaController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPERVISOR', 'SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<Void>> deactivate(@PathVariable Long id, @AuthenticationPrincipal User actor) {
         mesaService.deactivate(id, actor);
         return ResponseEntity.ok(ApiResponse.ok(null, "Mesa desactivada"));
