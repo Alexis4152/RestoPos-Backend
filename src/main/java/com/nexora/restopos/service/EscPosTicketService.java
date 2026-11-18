@@ -241,7 +241,10 @@ public class EscPosTicketService {
         text(buf, "Gracias por su visita\n");
         ctl(buf, 0x1B, 0x61, 0x00);
         text(buf, "\n\n\n");
-        ctl(buf, 0x1D, 0x56, 0x01); // GS V 1 : corte parcial del papel
+        // GS V 0 : corte COMPLETO al final de cada copia. Antes era parcial (GS V 1), que deja
+        // una tira sin cortar a propósito: con 2 copias (cliente / comercio) salían unidas y
+        // había que arrancarlas a mano. Completo, cada copia sale suelta.
+        ctl(buf, 0x1D, 0x56, 0x00);
         return huboEfectivo;
     }
 
