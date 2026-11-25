@@ -16,9 +16,8 @@ import java.util.Optional;
 public interface ReimbursementRepository extends JpaRepository<Reimbursement, Long> {
 
     /** {@code tiendaId} nulo = SUPER_ADMIN sin tienda elegida (no filtra por tienda). */
-    @Query("SELECT r FROM Reimbursement r WHERE (:tiendaId IS NULL OR r.tienda.id = :tiendaId) " +
-           "AND (:status IS NULL OR r.status = :status) " +
-           "ORDER BY r.createdAt DESC")
+    @Query("SELECT r FROM Reimbursement r LEFT JOIN r.person rp WHERE (:tiendaId IS NULL OR r.tienda.id = :tiendaId) " +
+           "AND (:status IS NULL OR r.status = :status)")
     Page<Reimbursement> search(@Param("tiendaId") Long tiendaId,
                                @Param("status") ReimbursementStatus status,
                                Pageable pageable);

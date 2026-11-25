@@ -18,8 +18,8 @@ import java.util.Optional;
 public interface ShortageRepository extends JpaRepository<Shortage, Long> {
 
     /** {@code tiendaId} nulo = SUPER_ADMIN sin tienda elegida (no filtra por tienda). */
-    @Query("SELECT s FROM Shortage s WHERE (:tiendaId IS NULL OR s.tienda.id = :tiendaId) " +
-           "AND s.status IN :statuses ORDER BY s.createdAt DESC")
+    @Query("SELECT s FROM Shortage s LEFT JOIN s.person sp WHERE (:tiendaId IS NULL OR s.tienda.id = :tiendaId) " +
+           "AND s.status IN :statuses")
     Page<Shortage> search(@Param("tiendaId") Long tiendaId,
                           @Param("statuses") Collection<ShortageStatus> statuses,
                           Pageable pageable);

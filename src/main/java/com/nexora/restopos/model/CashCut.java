@@ -201,6 +201,13 @@ public class CashCut {
     @Column(precision = 12, scale = 2)
     private BigDecimal loansOutTotal;
 
+    /**
+     * Devoluciones en efectivo hechas en este corte (pagos negativos: se le regresó dinero a un
+     * cliente, aunque la cuenta sea de otro turno). Salen de la caja.
+     */
+    @Column(precision = 12, scale = 2)
+    private BigDecimal refundsTotal;
+
     /** Efectivo contado al cerrar; null si nadie lo contó. */
     @Column(precision = 12, scale = 2)
     private BigDecimal countedAmount;

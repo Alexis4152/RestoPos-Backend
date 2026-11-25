@@ -625,7 +625,8 @@ public class ReportCatalogService {
 
     private Report cortesCaja(Ctx c, Filters f) {
         CashCutStatus status = enumOrNull(f.status(), CashCutStatus.class);
-        Page<CashCut> page = cashCutRepository.search(c.tiendaId(), c.start(), c.end(), status, null, null, PageRequest.of(0, c.limit()));
+        Page<CashCut> page = cashCutRepository.search(c.tiendaId(), c.start(), c.end(), status, null, null,
+                PageRequest.of(0, c.limit(), org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "openedAt")));
         List<Map<String, Object>> rows = new ArrayList<>();
         BigDecimal salesSum = BigDecimal.ZERO;
         for (CashCut cut : page.getContent()) {

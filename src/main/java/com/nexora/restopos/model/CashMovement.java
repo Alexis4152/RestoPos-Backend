@@ -70,6 +70,10 @@ public class CashMovement {
     @Column(length = 10)
     private WithdrawalDestination destination;
 
+    /** Destino escrito a mano cuando {@code destination} es {@code OTHER}. */
+    @Column(length = 100)
+    private String destinationOther;
+
     @Column(length = 100)
     private String reference;
 

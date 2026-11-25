@@ -17,7 +17,7 @@ import java.math.BigDecimal;
  * cierre), {@link CashMovementService} (tope de las salidas) y {@link CashRegisterService}
  * (efectivo esperado de las cajas en uso), para que los tres usen exactamente la misma fórmula:
  *
- * <pre>esperado = fondo inicial + ventas en efectivo + entradas − gastos − retiros − reembolsos − préstamos a otras cajas</pre>
+ * <pre>esperado = fondo inicial + ventas en efectivo + entradas − gastos − retiros − reembolsos − préstamos a otras cajas − devoluciones en efectivo</pre>
  *
  * Las ventas con tarjeta/transferencia no son dinero físico: se reportan pero no suman.
  */
@@ -67,9 +67,23 @@ public class CashBalanceCalculator {
             }
         }
 
+        // Devoluciones (pagos negativos): las ventas quedan en bruto y lo devuelto va aparte. En
+        // efectivo sale de la caja; con tarjeta y transferencia es informativo.
+        BigDecimal cashRefunds = BigDecimal.ZERO, cardRefunds = BigDecimal.ZERO, transferRefunds = BigDecimal.ZERO;
+        for (Object[] row : pagoRepository.refundsByCashCut(cut.getId())) {
+            BigDecimal sum = (BigDecimal) row[1];
+            if (row[0] == PaymentMethod.CASH) cashRefunds = cashRefunds.add(sum);
+            else if (row[0] == PaymentMethod.CARD) cardRefunds = cardRefunds.add(sum);
+            else if (row[0] == PaymentMethod.TRANSFER) transferRefunds = transferRefunds.add(sum);
+        }
+        cash = cash.add(cashRefunds);
+        card = card.add(cardRefunds);
+        transfer = transfer.add(transferRefunds);
+        total = total.add(cashRefunds).add(cardRefunds).add(transferRefunds);
+
         BigDecimal opening = cut.getOpeningAmount() != null ? cut.getOpeningAmount() : BigDecimal.ZERO;
         BigDecimal expected = opening.add(cash).add(entries)
-                .subtract(expenses).subtract(withdrawals).subtract(reimbursements).subtract(loansOut);
+                .subtract(expenses).subtract(withdrawals).subtract(reimbursements).subtract(loansOut).subtract(cashRefunds);
 
         return CashCutSummary.builder()
                 .openingAmount(opening)
@@ -78,6 +92,7 @@ public class CashBalanceCalculator {
                 .cancelledCount(cancelledCount).cancelledTotal(cancelledTotal)
                 .entriesTotal(entries).expensesTotal(expenses).withdrawalsTotal(withdrawals).reimbursementsTotal(reimbursements)
                 .loansOutTotal(loansOut)
+                .refundsTotal(cashRefunds).cardRefunds(cardRefunds).transferRefunds(transferRefunds)
                 .expectedCash(expected)
                 .build();
     }

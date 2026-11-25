@@ -67,11 +67,13 @@ public class CashCutService {
     private final CashMovementRepository movementRepository;
     private final UserRepository userRepository;
     private final CashBalanceCalculator calculator;
+    private final com.nexora.restopos.repository.PagoRepository pagoRepository;
     private final ShortageRepository shortageRepository;
     private final CashDayCloseService dayCloseService;
     private final CashCutReportNotifier reportNotifier;
     private final CashMovementService movementService;
     private final TenantScope tenantScope;
+    private final EntityLocks entityLocks;
 
     /**
      * Obtiene el corte de caja actualmente abierto del actor, si tiene uno.
@@ -79,6 +81,55 @@ public class CashCutService {
      * @param actor usuario cuyo corte abierto se busca
      * @return el corte abierto del actor, o vacío si no tiene ninguno abierto
      */
+    /**
+     * Corte para el widget "Corte de caja" del Inicio. Para SUPER_ADMIN/SUPERVISOR (no abren
+     * cortes propios) importa si la TIENDA donde actúan tiene alguno abierto; para los demás
+     * es el mismo que {@link #findOpen}.
+     */
+    public Optional<CashCut> findOpenForDashboard(User actor) {
+        if (tenantScope.isPlatformActor(actor)) {
+            Long tiendaId = tenantScope.scopeId(actor);
+            if (tiendaId == null) return Optional.empty();
+            return cashCutRepository.findFirstByTiendaIdAndStatusOrderByOpenedAtDesc(tiendaId, CashCutStatus.OPEN);
+        }
+        return findOpen(actor);
+    }
+
+    /**
+     * Cobros cancelados en un corte, con quién los canceló. Una cancelación baja el esperado
+     * del turno; si la hizo otra persona (un admin sobre el turno de un cajero), el cajero
+     * tiene que poder ver por qué cambió.
+     */
+    @Transactional(readOnly = true)
+    public List<com.nexora.restopos.dto.CutPaymentRow> cancelledPayments(Long cutId, User actor) {
+        CashCut cut = findById(cutId, actor);
+        Long ownerId = cut.getUser().getId();
+        return pagoRepository.findByCashCutIdAndCanceladoTrueOrderByCancelledAtAsc(cutId).stream()
+                .map(p -> paymentRow(p, p.getCancelledBy(), p.getCancelledAt(), p.getMotivoCancelacion(),
+                        p.getCancelledBy() != null && !p.getCancelledBy().getId().equals(ownerId)))
+                .toList();
+    }
+
+    /** Devoluciones (pagos negativos) hechas en un corte: en efectivo salen de la caja, las demás son informativas. */
+    @Transactional(readOnly = true)
+    public List<com.nexora.restopos.dto.CutPaymentRow> refunds(Long cutId, User actor) {
+        findById(cutId, actor);
+        return pagoRepository.findByCashCutIdAndCanceladoFalseAndMontoLessThanOrderByCreatedAtAsc(cutId, java.math.BigDecimal.ZERO)
+                .stream()
+                .map(p -> paymentRow(p, p.getUsuario(), p.getCreatedAt(), p.getReferencia(), false))
+                .toList();
+    }
+
+    private com.nexora.restopos.dto.CutPaymentRow paymentRow(com.nexora.restopos.model.Pago p, User by, LocalDateTime at,
+                                                             String motivo, boolean byOther) {
+        com.nexora.restopos.model.Cuenta cuenta = p.getCuenta();
+        com.nexora.restopos.model.Orden orden = cuenta.getOrden();
+        String folio = cuenta.getTicketFolio() != null ? cuenta.getTicketFolio() : "C-" + cuenta.getId();
+        String mesa = orden.getMesa() != null ? orden.getMesa().getNumero() : null;
+        return new com.nexora.restopos.dto.CutPaymentRow(p.getId(), cuenta.getId(), folio, orden.getId(), mesa,
+                p.getMetodo(), p.getMonto().abs(), p.getCreatedAt(), at, by != null ? by.getName() : null, motivo, byOther);
+    }
+
     public Optional<CashCut> findOpen(User actor) {
         return cashCutRepository.findFirstByUserIdAndStatus(actor.getId(), CashCutStatus.OPEN);
     }
@@ -162,7 +213,7 @@ public class CashCutService {
             case COUNT_ERROR -> {
                 CashRegister register = cut.getCashRegister();
                 if (register != null && diff.signum() != 0) {
-                    CashRegister r = cashRegisterRepository.findByIdForUpdate(register.getId()).orElseThrow();
+                    CashRegister r = cashRegisterRepository.findByIdForUpdate(register.getId()).map(entityLocks::fresh).orElseThrow();
                     boolean stillClosed = cashCutRepository.findFirstByCashRegisterIdAndStatus(r.getId(), CashCutStatus.OPEN).isEmpty();
                     boolean isLastCut = r.getLastCut() != null && r.getLastCut().getId().equals(cut.getId());
                     if (stillClosed && isLastCut && r.getPendingAmount() != null) {
@@ -289,7 +340,7 @@ public class CashCutService {
         if (findOpen(actor).isPresent()) {
             throw new IllegalStateException("Ya tienes un corte abierto. Ciérralo antes de abrir otro.");
         }
-        CashRegister register = cashRegisterRepository.findByIdForUpdate(req.getCashRegisterId())
+        CashRegister register = cashRegisterRepository.findByIdForUpdate(req.getCashRegisterId()).map(entityLocks::fresh)
                 .filter(r -> r.getTienda().getId().equals(tienda.getId()))
                 .orElseThrow(() -> new IllegalArgumentException("Caja no encontrada"));
         if (!Boolean.TRUE.equals(register.getIsActive())) {
@@ -509,7 +560,7 @@ public class CashCutService {
      */
     @Transactional
     public CashCut autoClose(Long id) {
-        CashCut cut = cashCutRepository.findByIdForUpdate(id)
+        CashCut cut = cashCutRepository.findByIdForUpdate(id).map(entityLocks::fresh)
                 .orElseThrow(() -> new IllegalArgumentException("Corte no encontrado: " + id));
         ensureOpen(cut);
         return closeInternal(cut, calculator.summarize(cut), null, CashCountMethod.NOT_COUNTED, null, null,
@@ -518,7 +569,7 @@ public class CashCutService {
 
     private CashCut lockVisible(Long id, User actor) {
         findById(id, actor); // valida permiso
-        return cashCutRepository.findByIdForUpdate(id)
+        return cashCutRepository.findByIdForUpdate(id).map(entityLocks::fresh)
                 .orElseThrow(() -> new IllegalArgumentException("Corte no encontrado: " + id));
     }
 
@@ -564,6 +615,7 @@ public class CashCutService {
         cut.setWithdrawalsTotal(summary.getWithdrawalsTotal());
         cut.setReimbursementsTotal(summary.getReimbursementsTotal());
         cut.setLoansOutTotal(summary.getLoansOutTotal());
+        cut.setRefundsTotal(summary.getRefundsTotal());
         cut.setClosingAmount(expected);
         cut.setCountedAmount(counted);
         cut.setCashDifference(counted != null ? counted.subtract(expected) : null);

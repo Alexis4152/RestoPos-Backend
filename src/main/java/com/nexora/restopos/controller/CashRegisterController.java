@@ -35,6 +35,12 @@ import java.util.List;
 @RequiredArgsConstructor
 public class CashRegisterController {
 
+    // Columnas ordenables de "Últimas entregas de caja" (clave del frontend -> propiedad JPQL).
+    private static final java.util.Map<String, String> SORT_HANDOVERS = java.util.Map.of("register", "cr.name", "from", "pu.name",
+            "to", "openedAt", "expected", "expectedOpeningAmount", "status", "handoverStatus");
+    private static final org.springframework.data.domain.Sort DEFAULT_SORT_HANDOVERS =
+            org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "openedAt");
+
     private final CashRegisterService cashRegisterService;
     private final CashMovementService cashMovementService;
     private final CashReportRecipientService recipientService;
@@ -67,9 +73,9 @@ public class CashRegisterController {
         return ResponseEntity.ok(ApiResponse.ok(cashRegisterService.reopenDay(id, actor), "Caja reabierta"));
     }
 
-    /** Retiro o entrada de efectivo con la caja cerrada (entre turnos). */
+    /** Movimiento de efectivo con la caja cerrada: un cajero, solo gastos o retiros al recibirla. */
     @PostMapping("/{id}/movements")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'SUPERVISOR')")
+    @PreAuthorize("@sectionAccess.check('CASH_CUTS')")
     public ResponseEntity<ApiResponse<CashMovement>> closedMovement(@PathVariable Long id,
                                                                      @Valid @RequestBody CashMovementRequest req,
                                                                      @AuthenticationPrincipal User actor) {
@@ -100,10 +106,13 @@ public class CashRegisterController {
 
     @GetMapping("/handovers")
     @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'SUPERVISOR')")
-    public ResponseEntity<ApiResponse<PageResponse<HandoverDto>>> handovers(@RequestParam(defaultValue = "0") int page,
+    public ResponseEntity<ApiResponse<PageResponse<HandoverDto>>> handovers(@RequestParam(required = false) String sort,
+                                                                            @RequestParam(required = false) String dir,
+                                                                            @RequestParam(defaultValue = "0") int page,
                                                                             @RequestParam(defaultValue = "10") int size,
                                                                             @AuthenticationPrincipal User actor) {
-        return ResponseEntity.ok(ApiResponse.ok(PageResponse.of(cashRegisterService.handovers(PageRequest.of(page, size), actor)), null));
+        return ResponseEntity.ok(ApiResponse.ok(PageResponse.of(cashRegisterService.handovers(
+                com.nexora.restopos.util.SortParams.page(page, size, sort, dir, SORT_HANDOVERS, DEFAULT_SORT_HANDOVERS), actor)), null));
     }
 
     @GetMapping("/handovers/unresolved-count")

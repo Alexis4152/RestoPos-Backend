@@ -34,6 +34,7 @@ public class CashDayCloseService {
     private final CashRegisterRepository registerRepository;
     private final CashCutRepository cashCutRepository;
     private final CashCutReportNotifier reportNotifier;
+    private final EntityLocks entityLocks;
 
     /** {@code true} si la caja hizo su fin de día y todavía no se reabre (ni por el job ni por cambio de día). */
     public static boolean isDayClosed(CashRegister r) {
@@ -50,7 +51,7 @@ public class CashDayCloseService {
      */
     @Transactional
     public int finishDay(Long registerId) {
-        CashRegister r = registerRepository.findByIdForUpdate(registerId).orElseThrow();
+        CashRegister r = registerRepository.findByIdForUpdate(registerId).map(entityLocks::fresh).orElseThrow();
         List<CashCut> cuts = unreportedCuts(r);
         r.setLastDayCloseAt(LocalDateTime.now());
         r.setDayClosed(true);

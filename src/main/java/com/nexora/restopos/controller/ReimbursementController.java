@@ -27,15 +27,22 @@ import java.math.BigDecimal;
 @RequiredArgsConstructor
 public class ReimbursementController {
 
+    // Columnas ordenables de la tabla (clave del frontend -> propiedad JPQL). Ver SortParams.
+    private static final java.util.Map<String, String> SORT = java.util.Map.of("person", "rp.name", "date", "createdAt", "amount", "amount");
+    private static final org.springframework.data.domain.Sort DEFAULT_SORT =
+            org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "createdAt");
+
     private final ReimbursementService reimbursementService;
 
     @GetMapping
     @PreAuthorize("@sectionAccess.check('CASH_CUTS')")
     public ResponseEntity<ApiResponse<PageResponse<Reimbursement>>> list(@RequestParam(required = false) ReimbursementStatus status,
+                                                                         @RequestParam(required = false) String sort,
+                                                                         @RequestParam(required = false) String dir,
                                                                          @RequestParam(defaultValue = "0") int page,
                                                                          @RequestParam(defaultValue = "20") int size,
                                                                          @AuthenticationPrincipal User actor) {
-        return ResponseEntity.ok(ApiResponse.ok(PageResponse.of(reimbursementService.search(status, PageRequest.of(page, size), actor)), null));
+        return ResponseEntity.ok(ApiResponse.ok(PageResponse.of(reimbursementService.search(status, com.nexora.restopos.util.SortParams.page(page, size, sort, dir, SORT, DEFAULT_SORT), actor)), null));
     }
 
     @GetMapping("/pending-total")

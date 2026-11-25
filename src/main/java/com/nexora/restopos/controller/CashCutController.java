@@ -48,6 +48,13 @@ public class CashCutController {
     private final CashCutService cashCutService;
     private final CashMovementService cashMovementService;
 
+    // Columnas ordenables de la tabla (clave que manda el frontend -> propiedad JPQL);
+    // cualquier otra clave usa el orden por defecto. Ver SortParams.
+    private static final java.util.Map<String, String> SORT_CASH_CUTS = java.util.Map.of("id", "id", "register", "cr.name",
+            "opened", "openedAt", "closed", "closedAt", "cashier", "cu.name", "sales", "totalSales", "status", "status");
+    private static final org.springframework.data.domain.Sort DEFAULT_SORT_CASH_CUTS =
+            org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "openedAt");
+
     // tabla/historial de cortes: solo ADMIN (de su propia tienda) o SUPER_ADMIN (todas)
     /**
      * Lista paginada del historial de cortes de caja, con filtros opcionales por
@@ -70,10 +77,12 @@ public class CashCutController {
             @RequestParam(required = false) CashCutStatus status,
             @RequestParam(required = false) Long userId,
             @RequestParam(required = false) HandoverStatus arqueoStatus,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String dir,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @AuthenticationPrincipal User actor) {
-        Pageable pageable = PageRequest.of(page, size);
+        Pageable pageable = com.nexora.restopos.util.SortParams.page(page, size, sort, dir, SORT_CASH_CUTS, DEFAULT_SORT_CASH_CUTS);
         Page<CashCut> result = cashCutService.findAll(from, to, status, userId, arqueoStatus, pageable, actor);
         return ResponseEntity.ok(ApiResponse.ok(PageResponse.of(result), null));
     }
@@ -111,6 +120,32 @@ public class CashCutController {
     public ResponseEntity<ApiResponse<CashCut>> getOpen(@AuthenticationPrincipal User actor) {
         Optional<CashCut> open = cashCutService.findOpen(actor);
         return ResponseEntity.ok(ApiResponse.ok(open.orElse(null), null));
+    }
+
+    /**
+     * Igual que {@link #getOpen}, pero para el widget del Inicio: para SUPER_ADMIN/SUPERVISOR
+     * responde con el corte abierto de la tienda donde actúan (no tienen corte propio).
+     */
+    @GetMapping("/open-for-dashboard")
+    @PreAuthorize("@sectionAccess.checkAny('CASH_CUTS', 'DASHBOARD')")
+    public ResponseEntity<ApiResponse<CashCut>> getOpenForDashboard(@AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(cashCutService.findOpenForDashboard(actor).orElse(null), null));
+    }
+
+    /** Cobros cancelados del turno, con quién los canceló (tabla "Movimientos del turno"). */
+    @GetMapping("/{id}/cancelled-payments")
+    @PreAuthorize("@sectionAccess.check('CASH_CUTS')")
+    public ResponseEntity<ApiResponse<List<com.nexora.restopos.dto.CutPaymentRow>>> cancelledPayments(@PathVariable Long id,
+                                                                                                      @AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(cashCutService.cancelledPayments(id, actor), null));
+    }
+
+    /** Devoluciones de cobros hechas en el turno (en efectivo salen de la caja; las demás son informativas). */
+    @GetMapping("/{id}/refunds")
+    @PreAuthorize("@sectionAccess.check('CASH_CUTS')")
+    public ResponseEntity<ApiResponse<List<com.nexora.restopos.dto.CutPaymentRow>>> refunds(@PathVariable Long id,
+                                                                                            @AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(cashCutService.refunds(id, actor), null));
     }
 
     // corte propio del día de hoy (abierto o ya cerrado) — para que quien lo cerró lo pueda seguir viendo

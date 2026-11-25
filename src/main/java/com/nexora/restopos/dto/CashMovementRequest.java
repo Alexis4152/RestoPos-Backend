@@ -35,6 +35,10 @@ public class CashMovementRequest {
 
     private WithdrawalDestination destination;
 
+    /** Destino escrito a mano cuando {@code destination} es {@code OTHER}. */
+    @Size(max = 100, message = "El destino no puede tener más de 100 caracteres")
+    private String destinationOther;
+
     @Size(max = 100, message = "La referencia no puede tener más de 100 caracteres")
     private String reference;
 

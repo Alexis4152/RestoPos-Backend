@@ -19,6 +19,10 @@ import java.util.Optional;
  * tronara por límite de profundidad de stack.
  */
 public interface UserRepository extends JpaRepository<User, Long> {
+
+    /** El supervisor de una tienda: la relación vive en Tienda, él no tiene tienda propia. */
+    @Query("SELECT t.supervisor FROM Tienda t WHERE t.id = :tiendaId")
+    java.util.Optional<User> findSupervisorOfTienda(@Param("tiendaId") Long tiendaId);
     /** Busca un usuario por su correo electrónico (usado en el login). */
     Optional<User> findByEmail(String email);
     /** Indica si ya existe un usuario registrado con ese correo. */

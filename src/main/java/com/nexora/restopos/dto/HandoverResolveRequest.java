@@ -32,6 +32,10 @@ public class HandoverResolveRequest {
 
     private WithdrawalDestination destination;
 
+    /** Destino escrito a mano cuando {@code destination} es {@code OTHER}. */
+    @jakarta.validation.constraints.Size(max = 100, message = "El destino no puede tener más de 100 caracteres")
+    private String destinationOther;
+
     /** Para {@code SHORTAGE} con faltante: quién lo debe cubrir (se le genera un {@code Shortage}). */
     private Long responsibleId;
 

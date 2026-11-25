@@ -47,6 +47,7 @@ public class ShortageService {
     private final CashCutRepository cashCutRepository;
     private final CashMovementRepository movementRepository;
     private final TenantScope tenantScope;
+    private final EntityLocks entityLocks;
 
     /** Faltantes de la tienda del actor: abiertos (pendientes o con abonos) o pagados. */
     public Page<Shortage> search(boolean paid, Pageable pageable, User actor) {
@@ -80,7 +81,7 @@ public class ShortageService {
     public Shortage pay(Long id, ShortagePaymentRequest req, User actor) {
         requireAdmin(actor);
         findInScope(id, actor);
-        Shortage s = shortageRepository.findByIdForUpdate(id).orElseThrow();
+        Shortage s = shortageRepository.findByIdForUpdate(id).map(entityLocks::fresh).orElseThrow();
         if (s.getStatus() == ShortageStatus.PAID) throw new IllegalStateException("Este faltante ya está pagado");
         BigDecimal remaining = s.getRemaining();
         if (req.getAmount().compareTo(remaining) > 0) {
@@ -97,7 +98,7 @@ public class ShortageService {
 
         if (req.getMethod() == ShortagePaymentMethod.CASH_REGISTER) {
             if (req.getCashCutId() == null) throw new IllegalStateException("Elige la caja a la que entra el dinero");
-            CashCut cut = cashCutRepository.findByIdForUpdate(req.getCashCutId())
+            CashCut cut = cashCutRepository.findByIdForUpdate(req.getCashCutId()).map(entityLocks::fresh)
                     .filter(c -> c.getTienda() != null && c.getTienda().getId().equals(s.getTienda().getId()))
                     .orElseThrow(() -> new IllegalArgumentException("Corte no encontrado"));
             if (cut.getStatus() != CashCutStatus.OPEN) throw new IllegalStateException("El corte elegido ya está cerrado");

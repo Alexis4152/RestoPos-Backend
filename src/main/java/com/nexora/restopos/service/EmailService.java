@@ -158,6 +158,27 @@ public class EmailService {
         }
     }
 
+    /** Aviso de un gasto o retiro que registró un cajero al recibir la caja (de lo que quedó del día anterior). */
+    @Async
+    public void sendCashBeforeOpeningEmail(String tiendaName, String registerName, String cashierName, String kind,
+                                           java.math.BigDecimal amount, String detail, String personName,
+                                           java.time.LocalDateTime when, String toEmail) {
+        send(kind.toLowerCase() + " antes de abrir caja de " + tiendaName + " / " + registerName, toEmail,
+                senderName(() -> tiendaName), false, helper -> {
+            helper.setSubject(kind + " antes de abrir caja — " + registerName + " · " + tiendaName);
+            helper.setText(
+                    "Se registró un movimiento de efectivo al recibir la caja, de lo que quedó del día anterior.\n\n" +
+                    "Caja: " + registerName + "\n" +
+                    "Cajero: " + cashierName + "\n" +
+                    "Tipo: " + kind + "\n" +
+                    "Monto: $" + String.format(java.util.Locale.US, "%,.2f", amount) + "\n" +
+                    ("Retiro".equals(kind) ? "Destino: " : "Concepto: ") + detail + "\n" +
+                    ("Retiro".equals(kind) ? "Retiró: " : "Hizo el gasto: ") + personName + "\n" +
+                    "Hora: " + when.format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))
+            );
+        });
+    }
+
     @Async
     public void sendCashCutReportEmail(Tienda tienda, int cutCount, byte[] excelBytes, String toEmail) {
         send("reporte de cierre de caja de " + tienda.getName(), toEmail, senderName(tienda::getName), true, helper -> {

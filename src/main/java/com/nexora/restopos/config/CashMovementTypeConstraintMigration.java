@@ -1,6 +1,7 @@
 package com.nexora.restopos.config;
 
 import com.nexora.restopos.model.CashMovementType;
+import com.nexora.restopos.model.WithdrawalDestination;
 import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +36,12 @@ public class CashMovementTypeConstraintMigration implements CommandLineRunner {
                 .collect(Collectors.joining(", "));
         entityManager.createNativeQuery("ALTER TABLE cash_movements DROP CONSTRAINT IF EXISTS cash_movements_type_check").executeUpdate();
         entityManager.createNativeQuery("ALTER TABLE cash_movements ADD CONSTRAINT cash_movements_type_check CHECK (type IN (" + values + "))").executeUpdate();
+        String destinations = Arrays.stream(WithdrawalDestination.values())
+                .map(d -> "'" + d.name() + "'")
+                .collect(Collectors.joining(", "));
+        entityManager.createNativeQuery("ALTER TABLE cash_movements DROP CONSTRAINT IF EXISTS cash_movements_destination_check").executeUpdate();
+        entityManager.createNativeQuery("ALTER TABLE cash_movements ADD CONSTRAINT cash_movements_destination_check CHECK (destination IN (" + destinations + "))").executeUpdate();
+        log.info("Restricción cash_movements_destination_check actualizada: {}", destinations);
         log.info("Restricción cash_movements_type_check actualizada: {}", values);
     }
 }

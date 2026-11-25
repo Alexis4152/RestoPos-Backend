@@ -14,6 +14,17 @@ public interface PagoRepository extends JpaRepository<Pago, Long> {
 
     List<Pago> findByCashCutId(Long cashCutId);
 
+    /** Devoluciones (pagos negativos vigentes) de un corte por método: filas {@code [PaymentMethod, suma positiva]}. */
+    @Query("SELECT p.metodo, COALESCE(SUM(-p.monto), 0) FROM Pago p WHERE p.cashCut.id = :cutId " +
+           "AND p.cancelado = false AND p.monto < 0 GROUP BY p.metodo")
+    List<Object[]> refundsByCashCut(@Param("cutId") Long cutId);
+
+    /** Cobros cancelados de un corte, en el orden en que se cancelaron. */
+    List<Pago> findByCashCutIdAndCanceladoTrueOrderByCancelledAtAsc(Long cashCutId);
+
+    /** Devoluciones (pagos negativos vigentes) hechas en un corte. */
+    List<Pago> findByCashCutIdAndCanceladoFalseAndMontoLessThanOrderByCreatedAtAsc(Long cashCutId, BigDecimal monto);
+
     /** Pagos vigentes (no cancelados) de todas las cuentas de una orden, en el orden en que se hicieron. */
     List<Pago> findByCuentaOrdenIdAndCanceladoFalseOrderByCreatedAtAsc(Long ordenId);
 

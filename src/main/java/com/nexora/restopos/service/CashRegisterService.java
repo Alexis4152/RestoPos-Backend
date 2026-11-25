@@ -52,6 +52,7 @@ public class CashRegisterService {
     private final CashMovementService movementService;
     private final ShortageRepository shortageRepository;
     private final TenantScope tenantScope;
+    private final EntityLocks entityLocks;
 
     /** Cajas de la tienda del actor con su estado (en uso o cerrada con su entrega pendiente). */
     @Transactional
@@ -113,7 +114,7 @@ public class CashRegisterService {
     public CashRegister reopenDay(Long id, User actor) {
         requireAdmin(actor);
         Tienda tienda = requireTienda(actor);
-        CashRegister r = registerRepository.findByIdForUpdate(id)
+        CashRegister r = registerRepository.findByIdForUpdate(id).map(entityLocks::fresh)
                 .filter(x -> x.getTienda().getId().equals(tienda.getId()))
                 .orElseThrow(() -> new IllegalArgumentException("Caja no encontrada"));
         if (!CashDayCloseService.isDayClosed(r)) {
@@ -153,7 +154,11 @@ public class CashRegisterService {
     public List<PersonDto> people(User actor) {
         Tienda tienda = requireTienda(actor);
         List<PersonDto> result = new ArrayList<>(userRepository.findByTiendaIdAndIsActiveTrueOrderByNameAsc(tienda.getId())
-                .stream().map(u -> new PersonDto(u.getId(), u.getName(), roleName(u))).toList());
+                .stream().filter(u -> !tenantScope.isSuperAdmin(u))
+                .map(u -> new PersonDto(u.getId(), u.getName(), roleName(u))).toList());
+        userRepository.findSupervisorOfTienda(tienda.getId())
+                .filter(u -> Boolean.TRUE.equals(u.getIsActive()) && result.stream().noneMatch(p -> p.id().equals(u.getId())))
+                .ifPresent(u -> result.add(new PersonDto(u.getId(), u.getName(), roleName(u))));
         if (result.stream().noneMatch(p -> p.id().equals(actor.getId()))) {
             result.add(0, new PersonDto(actor.getId(), actor.getName(), roleName(actor)));
         }
@@ -194,7 +199,7 @@ public class CashRegisterService {
     public HandoverDto resolveHandover(Long cutId, HandoverResolveRequest req, User actor) {
         requireAdmin(actor);
         Long scope = tenantScope.scopeId(actor);
-        CashCut cut = cashCutRepository.findByIdForUpdate(cutId)
+        CashCut cut = cashCutRepository.findByIdForUpdate(cutId).map(entityLocks::fresh)
                 .filter(c -> scope == null ? tenantScope.isSuperAdmin(actor)
                         : c.getTienda() != null && scope.equals(c.getTienda().getId()))
                 .orElseThrow(() -> new IllegalArgumentException("Entrega no encontrada"));
@@ -205,7 +210,6 @@ public class CashRegisterService {
         switch (req.getResolution()) {
             case UNREGISTERED_WITHDRAWAL -> {
                 if (req.getAmount() == null) throw new IllegalStateException("Captura el monto retirado");
-                if (req.getDestination() == null) throw new IllegalStateException("Indica el destino del dinero");
                 CashMovement m = new CashMovement();
                 m.setTienda(cut.getTienda());
                 m.setCashRegister(cut.getCashRegister());
@@ -215,7 +219,7 @@ public class CashRegisterService {
                 m.setConcept("Retiro registrado después");
                 m.setPerson(req.getPersonId() != null
                         ? movementService.findPerson(req.getPersonId(), cut.getTienda(), actor) : actor);
-                m.setDestination(req.getDestination());
+                movementService.applyDestination(m, req.getDestination(), req.getDestinationOther());
                 m.setRegisteredBy(actor);
                 m.setOccurredAt(req.getOccurredAt() != null ? req.getOccurredAt() : LocalDateTime.now());
                 m.setLateRegistered(true);

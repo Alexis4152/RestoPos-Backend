@@ -60,13 +60,14 @@ public interface CashCutRepository extends JpaRepository<CashCut, Long> {
      * {@link LocalDateTime} nulo, por lo que aquí se usa {@code BETWEEN} directo en vez del patrón
      * {@code (:from IS NULL OR ...)}.
      */
-    @Query("SELECT c FROM CashCut c WHERE " +
+    // Sin ORDER BY: el orden llega en el Pageable (ver CashCutController). LEFT JOIN a la
+    // caja y al cajero para poder ordenar por su nombre sin perder los cortes sin caja.
+    @Query("SELECT c FROM CashCut c LEFT JOIN c.cashRegister cr LEFT JOIN c.user cu WHERE " +
            "(:tiendaId IS NULL OR c.tienda.id = :tiendaId) " +
            "AND c.openedAt BETWEEN :from AND :to " +
            "AND (:status IS NULL OR c.status = :status) " +
            "AND (:userId IS NULL OR c.user.id = :userId) " +
-           "AND (:arqueoStatus IS NULL OR c.arqueoStatus = :arqueoStatus) " +
-           "ORDER BY c.openedAt DESC")
+           "AND (:arqueoStatus IS NULL OR c.arqueoStatus = :arqueoStatus)")
     Page<CashCut> search(@Param("tiendaId") Long tiendaId,
                           @Param("from") LocalDateTime from,
                           @Param("to") LocalDateTime to,
@@ -103,9 +104,12 @@ public interface CashCutRepository extends JpaRepository<CashCut, Long> {
     Optional<CashCut> findByIdForUpdate(@Param("id") Long id);
 
     // "Últimas entregas de caja": cada corte que recibió una caja de un turno anterior.
-    @Query("SELECT c FROM CashCut c WHERE (:tiendaId IS NULL OR c.tienda.id = :tiendaId) " +
-           "AND c.cashRegister IS NOT NULL AND c.expectedOpeningAmount IS NOT NULL " +
-           "ORDER BY c.openedAt DESC")
+    // Sin ORDER BY: el orden llega en el Pageable (ver CashRegisterController#handovers).
+    // LEFT JOINs para poder ordenar por caja, quién entregó (corte anterior) y quién recibió.
+    @Query("SELECT c FROM CashCut c LEFT JOIN c.cashRegister cr LEFT JOIN c.user cu " +
+           "LEFT JOIN c.previousCut pc LEFT JOIN pc.user pu " +
+           "WHERE (:tiendaId IS NULL OR c.tienda.id = :tiendaId) " +
+           "AND c.cashRegister IS NOT NULL AND c.expectedOpeningAmount IS NOT NULL")
     Page<CashCut> findHandovers(@Param("tiendaId") Long tiendaId, Pageable pageable);
 
     @Query("SELECT COUNT(c) FROM CashCut c WHERE (:tiendaId IS NULL OR c.tienda.id = :tiendaId) " +
@@ -116,6 +120,12 @@ public interface CashCutRepository extends JpaRepository<CashCut, Long> {
            "WHERE (:tiendaId IS NULL OR c.tienda.id = :tiendaId) " +
            "ORDER BY c.user.name ASC")
     List<Object[]> findDistinctCashiers(@Param("tiendaId") Long tiendaId);
+
+    /**
+     * Para el widget "Corte de caja" del Inicio cuando lo consulta un SUPER_ADMIN/SUPERVISOR
+     * actuando sobre una tienda: no abren cortes propios, así que importa si HAY alguno abierto.
+     */
+    Optional<CashCut> findFirstByTiendaIdAndStatusOrderByOpenedAtDesc(Long tiendaId, CashCutStatus status);
 
     /** ¿La tienda tiene algún corte abierto ahora? (resumen de la pantalla de tiendas). */
     boolean existsByTiendaIdAndStatus(Long tiendaId, CashCutStatus status);
