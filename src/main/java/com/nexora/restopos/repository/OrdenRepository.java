@@ -14,6 +14,10 @@ import java.util.List;
 /** Repositorio de {@link Orden}. */
 public interface OrdenRepository extends JpaRepository<Orden, Long> {
 
+    /** Órdenes ya cobradas antes de {@code antes} que siguen abiertas (falta marcar la entrega). */
+    List<Orden> findByPagadoAtBeforeAndEstadoNotIn(java.time.LocalDateTime antes,
+                                                   java.util.Collection<com.nexora.restopos.model.OrdenEstado> estados);
+
     /**
      * Búsqueda paginada de órdenes con filtros combinables.
      *

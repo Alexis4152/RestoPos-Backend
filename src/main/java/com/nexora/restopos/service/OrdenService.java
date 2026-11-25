@@ -1288,6 +1288,18 @@ public class OrdenService {
      * además ya se entregó todo: pagada y sin entregar sigue abierta, así que cocina la sigue viendo.
      */
     public void marcarPagadaSiCorresponde(Orden orden) {
+        marcarPagadaSiCorresponde(orden, null);
+    }
+
+    /**
+     * Igual que {@link #marcarPagadaSiCorresponde(Orden)}, pero llamado al COMPLETAR un cobro
+     * ({@code actorCobro} = quien cobró): si la orden ya quedó pagada y aún hay platillos sin
+     * marcar como entregados, se marcan entregados solos y la orden se cierra (libera la mesa).
+     * Si ya pagaron, el cliente ya tiene su comida. No aplica a pedidos que se pagan antes de
+     * recibirlos (para llevar, comer aquí, recoger) ni a domicilio, porque esos sí siguen en
+     * cocina o en camino después de cobrar.
+     */
+    public void marcarPagadaSiCorresponde(Orden orden, User actorCobro) {
         boolean todoFacturado = orden.getItems().stream()
                 .filter(i -> i.getEstado() != OrdenDetalleEstado.CANCELADO)
                 .allMatch(i -> i.getCantidadFacturada().compareTo(i.getCantidad()) >= 0);
@@ -1300,6 +1312,12 @@ public class OrdenService {
             boolean todoEntregado = orden.getItems().stream()
                     .filter(i -> i.getEstado() != OrdenDetalleEstado.CANCELADO && !Boolean.TRUE.equals(i.getCargoExtra()))
                     .allMatch(i -> i.getEstado() == OrdenDetalleEstado.ENTREGADO);
+            if (!todoEntregado && actorCobro != null && seEntregaAlCobrar(orden)) {
+                List<String> marcados = entregarPendientes(orden);
+                auditoriaService.log(actorCobro, "ENTREGAR_AL_COBRAR", "Orden", orden.getId(), null, String.join(", ", marcados),
+                        "Se completó el cobro: lo que faltaba se marcó como entregado");
+                todoEntregado = true;
+            }
             if (!todoEntregado) {
                 // Ya no debe nada, pero sigue en servicio: deja de estar "en espera de cobro".
                 if (orden.getMesa() != null && orden.getMesa().getEstado() == MesaEstado.PENDIENTE_PAGO) {
@@ -1317,6 +1335,48 @@ public class OrdenService {
             liberarMesa(orden);
             ordenRepository.save(orden);
         }
+    }
+
+    /** Marca como entregado todo lo que falta (sin cancelados ni cargos). Devuelve "Platillo (ESTADO)" de cada uno. */
+    private List<String> entregarPendientes(Orden orden) {
+        List<String> marcados = new java.util.ArrayList<>();
+        for (OrdenDetalle i : orden.getItems()) {
+            if (i.getEstado() == OrdenDetalleEstado.CANCELADO || i.getEstado() == OrdenDetalleEstado.ENTREGADO
+                    || Boolean.TRUE.equals(i.getCargoExtra())) continue;
+            marcados.add(i.getProductoNombre() + " (" + i.getEstado() + ")");
+            i.setEstado(OrdenDetalleEstado.ENTREGADO);
+            if (i.getEntregadoCocinaAt() == null) i.setEntregadoCocinaAt(LocalDateTime.now());
+            ordenDetalleRepository.save(i);
+        }
+        return marcados;
+    }
+
+    /**
+     * Proceso automático (ver CobradasSinEntregarJob): las órdenes que se pagan antes de recibir
+     * (para llevar, comer aquí, recoger) y que ya se cobraron hace más de {@code antes} sin que
+     * nadie marcara la entrega, se dan por entregadas y se cierran. A domicilio NO: esa entrega
+     * la marca el repartidor.
+     *
+     * @return cuántas órdenes se cerraron
+     */
+    @Transactional
+    public int cerrarCobradasSinEntregar(LocalDateTime antes) {
+        int cerradas = 0;
+        for (Orden orden : ordenRepository.findByPagadoAtBeforeAndEstadoNotIn(antes, List.of(OrdenEstado.PAGADA, OrdenEstado.CANCELADA))) {
+            if (!cobroAnticipado(orden) || "DOMICILIO".equals(orden.getTipoEntrega())) continue;
+            List<String> marcados = entregarPendientes(orden);
+            marcarPagadaSiCorresponde(orden);
+            if (orden.getEstado() != OrdenEstado.PAGADA) continue; // aún debe algo: no se toca
+            auditoriaService.logSistema(orden.getTienda(), "ENTREGAR_AUTOMATICO", "Orden", orden.getId(), null,
+                    String.join(", ", marcados), "Cobrada hace más de un día sin marcar la entrega: se cerró sola");
+            cerradas++;
+        }
+        return cerradas;
+    }
+
+    /** Al completar el cobro, ¿lo pendiente se da por entregado? Sí en mesa; no si se paga antes de recibir ni a domicilio. */
+    private static boolean seEntregaAlCobrar(Orden orden) {
+        return !cobroAnticipado(orden) && !"DOMICILIO".equals(orden.getTipoEntrega());
     }
 
     /** Se canceló un pago de una orden que ya estaba pagada y sin entregar: vuelve a deber. */

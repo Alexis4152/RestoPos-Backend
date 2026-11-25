@@ -44,6 +44,24 @@ public class AuditoriaService {
         }
     }
 
+    /** Registro hecho por un proceso automático (sin usuario): se guarda con la tienda indicada. */
+    public void logSistema(com.nexora.restopos.model.Tienda tienda, String accion, String entidad, Long entidadId,
+                           Object before, Object after, String motivo) {
+        try {
+            Auditoria a = new Auditoria();
+            a.setTienda(tienda);
+            a.setAccion(accion);
+            a.setEntidad(entidad);
+            a.setEntidadId(entidadId);
+            a.setValorAnterior(toJson(before));
+            a.setValorNuevo(toJson(after));
+            a.setMotivo(motivo);
+            auditoriaRepository.save(a);
+        } catch (RuntimeException e) {
+            log.error("No se pudo registrar auditoría ({} {}#{}): {}", accion, entidad, entidadId, e.getMessage());
+        }
+    }
+
     public Page<Auditoria> findAll(Pageable pageable, User actor) {
         return auditoriaRepository.search(tenantScope.scopeId(actor), pageable);
     }

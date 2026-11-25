@@ -127,7 +127,7 @@ public class PagoService {
         cuenta = cuentaService.save(cuenta);
 
         if (cuenta.getEstado() == CuentaEstado.PAGADA) {
-            ordenService.marcarPagadaSiCorresponde(cuenta.getOrden());
+            ordenService.marcarPagadaSiCorresponde(cuenta.getOrden(), actor);
         }
         if (req.getEmailTicket() != null && !req.getEmailTicket().isBlank()) {
             emailService.sendTicketEmail(cuenta, req.getEmailTicket());
