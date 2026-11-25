@@ -59,10 +59,24 @@ public class ModificadorGrupoService {
                         .nombre(g.getNombre())
                         .tipo(g.getTipo())
                         .obligatorio(g.getObligatorio())
+                        .maxSelecciones(g.getMaxSelecciones())
                         .productoNombre(g.getProducto().getName())
                         .opciones(g.getOpciones().stream().filter(o -> Boolean.TRUE.equals(o.getIsActive())).toList())
                         .build())
                 .toList();
+    }
+
+    /**
+     * Máximo de opciones del grupo: solo aplica a MULTIPLE (en UNICO ya es 1) y no puede pedir
+     * más opciones de las que hay; null = sin límite.
+     */
+    private static Integer maxSelecciones(ModificadorGrupoRequest req) {
+        if (req.getTipo() != com.nexora.restopos.model.ModificadorGrupoTipo.MULTIPLE || req.getMaxSelecciones() == null) return null;
+        int opciones = req.getOpciones() != null ? req.getOpciones().size() : 0;
+        if (req.getMaxSelecciones() > opciones) {
+            throw new IllegalArgumentException("El máximo (" + req.getMaxSelecciones() + ") no puede ser mayor que las opciones del grupo (" + opciones + ")");
+        }
+        return req.getMaxSelecciones();
     }
 
     public ModificadorGrupo findById(Long id, User actor) {
@@ -83,6 +97,7 @@ public class ModificadorGrupoService {
         grupo.setNombre(req.getNombre());
         grupo.setTipo(req.getTipo());
         grupo.setObligatorio(Boolean.TRUE.equals(req.getObligatorio()));
+        grupo.setMaxSelecciones(maxSelecciones(req));
         // Los grupos nuevos van al final de los que ya tiene el platillo.
         grupo.setOrden(modificadorGrupoRepository.findAllByProductoIdAndIsActiveTrueOrderByOrdenAscIdAsc(productoId).stream()
                 .mapToInt(g -> g.getOrden() == null ? 0 : g.getOrden()).max().orElse(-1) + 1);
@@ -116,6 +131,7 @@ public class ModificadorGrupoService {
         grupo.setNombre(req.getNombre());
         grupo.setTipo(req.getTipo());
         grupo.setObligatorio(Boolean.TRUE.equals(req.getObligatorio()));
+        grupo.setMaxSelecciones(maxSelecciones(req));
         grupo.setUpdatedBy(actor);
         modificadorGrupoRepository.save(grupo);
 

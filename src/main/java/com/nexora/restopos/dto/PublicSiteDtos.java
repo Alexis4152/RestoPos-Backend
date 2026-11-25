@@ -36,7 +36,8 @@ public final class PublicSiteDtos {
 
     public record Opcion(Long id, String nombre, BigDecimal precioExtra) {}
 
-    public record Grupo(Long id, String nombre, String tipo, boolean obligatorio, List<Opcion> opciones) {}
+    /** maxSelecciones: solo MULTIPLE; null = sin límite. */
+    public record Grupo(Long id, String nombre, String tipo, boolean obligatorio, Integer maxSelecciones, List<Opcion> opciones) {}
 
     /** {@code sinInventario}: lleva inventario y se acabó; se muestra "No disponible" y no se puede pedir. */
     public record Producto(Long id, String nombre, String descripcion, BigDecimal precio, String imageUrl, List<Grupo> grupos,

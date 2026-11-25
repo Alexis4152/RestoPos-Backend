@@ -25,6 +25,7 @@ public class ModificadorGrupoCopiableView {
     private String nombre;
     private ModificadorGrupoTipo tipo;
     private Boolean obligatorio;
+    private Integer maxSelecciones;
     private String productoNombre;
     private List<ModificadorOpcion> opciones;
 }

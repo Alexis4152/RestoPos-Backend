@@ -994,6 +994,11 @@ public class OrdenService {
             if (grupo.getTipo() == ModificadorGrupoTipo.UNICO && deEsteGrupo.size() > 1) {
                 throw new IllegalArgumentException("\"" + grupo.getNombre() + "\" solo admite una opción");
             }
+            if (grupo.getTipo() == ModificadorGrupoTipo.MULTIPLE && grupo.getMaxSelecciones() != null
+                    && deEsteGrupo.size() > grupo.getMaxSelecciones()) {
+                throw new IllegalArgumentException("En \"" + grupo.getNombre() + "\" puedes elegir máximo "
+                        + grupo.getMaxSelecciones() + (grupo.getMaxSelecciones() == 1 ? " opción" : " opciones"));
+            }
         }
         return elegidas;
     }

@@ -46,6 +46,13 @@ public class ModificadorGrupo {
     @Builder.Default
     private Boolean obligatorio = false;
 
+    /**
+     * Solo en grupos {@code MULTIPLE}: cuántas opciones se pueden elegir como máximo
+     * (ej. "Omelet 2 ingredientes" = 2). {@code null} = sin límite. En {@code UNICO} siempre es null.
+     */
+    @Column(name = "max_selecciones")
+    private Integer maxSelecciones;
+
     @Column(nullable = false)
     @Builder.Default
     private Integer orden = 0;

@@ -2,6 +2,8 @@ package com.nexora.restopos.dto;
 
 import com.nexora.restopos.model.ModificadorGrupoTipo;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -21,6 +23,11 @@ public class ModificadorGrupoRequest {
 
     @NotNull
     private Boolean obligatorio;
+
+    /** Solo para MULTIPLE: máximo de opciones a elegir; null o vacío = sin límite. */
+    @Min(value = 1, message = "El máximo debe ser al menos 1")
+    @Max(value = 50, message = "El máximo no puede pasar de 50")
+    private Integer maxSelecciones;
 
     @NotEmpty(message = "Agrega al menos una opción")
     @Valid

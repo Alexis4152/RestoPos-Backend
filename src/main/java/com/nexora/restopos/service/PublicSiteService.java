@@ -116,6 +116,7 @@ public class PublicSiteService {
                         .thenComparing(ModificadorGrupo::getId))
                 .map(g -> new PublicSiteDtos.Grupo(g.getId(), g.getNombre(), g.getTipo().name(),
                         Boolean.TRUE.equals(g.getObligatorio()),
+                        "MULTIPLE".equals(g.getTipo().name()) ? g.getMaxSelecciones() : null,
                         g.getOpciones().stream()
                                 .filter(o -> Boolean.TRUE.equals(o.getIsActive()))
                                 .sorted(Comparator.comparing((ModificadorOpcion o) -> o.getOrden() == null ? 0 : o.getOrden())

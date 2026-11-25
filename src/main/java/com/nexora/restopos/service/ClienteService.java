@@ -279,7 +279,9 @@ public class ClienteService {
             java.util.Set<Long> elegidas = mods.stream().map(PublicSiteDtos.ModCarrito::id).collect(java.util.stream.Collectors.toSet());
             boolean faltaObligatorio = p.grupos().stream().anyMatch(g -> g.obligatorio()
                     && g.opciones().stream().noneMatch(o -> elegidas.contains(o.id())));
-            if (faltaObligatorio) { cambiaron.add(p.nombre()); continue; }
+            boolean excedeMaximo = p.grupos().stream().anyMatch(g -> g.maxSelecciones() != null
+                    && g.opciones().stream().filter(o -> elegidas.contains(o.id())).count() > g.maxSelecciones());
+            if (faltaObligatorio || excedeMaximo) { cambiaron.add(p.nombre()); continue; }
             if (faltoExtra) cambiaron.add(p.nombre());
 
             int cantidad = Math.max(1, Math.min(99, d.getCantidad().setScale(0, java.math.RoundingMode.HALF_UP).intValue()));
