@@ -120,6 +120,18 @@ public class EscPosTicketService {
     }
 
     /**
+     * Una sola copia de la cuenta: {@code "CLIENTE"} (con su QR de opinión) o {@code "COMERCIO"}.
+     * Para los botones "Imprimir recibo del cliente" / "para el negocio": cada uno sale como
+     * su propio ticket. No abre el cajón (eso pasa al cobrar, ver {@link #soloCajon}).
+     */
+    public String buildRecibo(Cuenta cuenta, String copia) {
+        boolean cliente = !"COMERCIO".equalsIgnoreCase(copia);
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        copia(buf, cuenta, cliente ? "COPIA CLIENTE" : "COPIA COMERCIO", cuenta.getEstado() == CuentaEstado.PENDIENTE, cliente);
+        return toHex(buf.toByteArray());
+    }
+
+    /**
      * Solo el pulso que abre el cajón de dinero, SIN imprimir nada — al cobrar, el cajero ya no
      * imprime ticket (el mesero imprimió la cuenta en 2 copias), pero el cajón se tiene que
      * abrir para guardar el efectivo y dar cambio.

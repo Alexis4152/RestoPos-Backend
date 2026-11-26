@@ -119,6 +119,17 @@ public class CuentaController {
         return ResponseEntity.ok(ApiResponse.ok(escPosTicketService.buildCopias(cuenta, copias, abrirCajon)));
     }
 
+    /** Una sola copia de la cuenta (ESC/POS hex): {@code copia} = CLIENTE o COMERCIO. */
+    @GetMapping("/api/accounts/{id}/ticket-escpos-recibo")
+    @PreAuthorize("@sectionAccess.checkAny('ORDERS', 'SALES')")
+    public ResponseEntity<ApiResponse<String>> ticketEscPosRecibo(@PathVariable Long id,
+                                                                  @RequestParam(defaultValue = "CLIENTE") String copia,
+                                                                  @AuthenticationPrincipal User actor) {
+        Cuenta cuenta = cuentaService.findById(id, actor);
+        impresionCuentaPolicy.assertPuedeImprimir(cuenta, actor);
+        return ResponseEntity.ok(ApiResponse.ok(escPosTicketService.buildRecibo(cuenta, copia)));
+    }
+
     @PostMapping("/api/accounts/{id}/ticket/email")
     @PreAuthorize("@sectionAccess.check('ORDERS')")
     public ResponseEntity<ApiResponse<Void>> emailTicket(@PathVariable Long id, @Valid @RequestBody TicketEmailRequest req,
