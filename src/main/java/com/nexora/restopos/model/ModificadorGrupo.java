@@ -53,6 +53,14 @@ public class ModificadorGrupo {
     @Column(name = "max_selecciones")
     private Integer maxSelecciones;
 
+    /**
+     * Solo en grupos {@code MULTIPLE}: la misma opción se puede pedir varias veces (ej. Cebolla x3,
+     * $5 cada una). Con esto el máximo cuenta piezas, no opciones distintas.
+     */
+    @Column(name = "permite_repetir", nullable = false, columnDefinition = "boolean default false")
+    @Builder.Default
+    private Boolean permiteRepetir = false;
+
     @Column(nullable = false)
     @Builder.Default
     private Integer orden = 0;

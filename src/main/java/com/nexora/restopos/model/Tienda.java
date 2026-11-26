@@ -125,6 +125,12 @@ public class Tienda {
     @Builder.Default
     private Boolean seguimientoRepartidor = true;
 
+    // Extras libres al tomar la orden: quien toma la orden escribe un extra que no está en el
+    // menú, con su precio (queda en la auditoría). Por ahora solo lo activa el SUPER_ADMIN.
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    @Builder.Default
+    private Boolean extraLibre = false;
+
     // El supervisor (dueño) recibe el reporte de fin de día de cada caja por default; puede
     // desactivarlo si prefiere que solo les llegue a los destinatarios que configuró (ver
     // CashReportRecipient / CashReportRecipientService).

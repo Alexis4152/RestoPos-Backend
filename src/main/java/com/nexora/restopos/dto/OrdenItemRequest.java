@@ -22,4 +22,8 @@ public class OrdenItemRequest {
     // ids de ModificadorOpcion elegidas (de cualquier grupo del producto), opcional — ver
     // OrdenService#agregarItem, que valida ahí las reglas de único/obligatorio.
     private List<Long> modificadorOpcionIds;
+    // Extras que no están en el menú (nombre y precio a mano); solo si la tienda los activó.
+    @jakarta.validation.Valid
+    @jakarta.validation.constraints.Size(max = 10, message = "Máximo 10 extras libres por platillo")
+    private List<ExtraLibreRequest> extrasLibres;
 }

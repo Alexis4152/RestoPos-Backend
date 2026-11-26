@@ -257,7 +257,7 @@ public class OrdenService {
                 throw new IllegalArgumentException("\"" + producto.getName() + "\" no está disponible en este momento");
             }
             String obs = it.getObservaciones() != null && !it.getObservaciones().isBlank() ? it.getObservaciones().trim() : null;
-            crearLinea(saved, producto, null, BigDecimal.valueOf(it.getCantidad()), BigDecimal.ZERO, obs, it.getModificadorOpcionIds(), null);
+            crearLinea(saved, producto, null, BigDecimal.valueOf(it.getCantidad()), BigDecimal.ZERO, obs, it.getModificadorOpcionIds(), null, null);
         }
 
         if (domicilio) {
@@ -317,7 +317,7 @@ public class OrdenService {
                 throw new IllegalArgumentException("\"" + producto.getName() + "\" no está disponible");
             }
             String obs = it.getObservaciones() != null && !it.getObservaciones().isBlank() ? it.getObservaciones().trim() : null;
-            crearLinea(orden, producto, null, BigDecimal.valueOf(it.getCantidad()), BigDecimal.ZERO, obs, it.getModificadorOpcionIds(), null);
+            crearLinea(orden, producto, null, BigDecimal.valueOf(it.getCantidad()), BigDecimal.ZERO, obs, it.getModificadorOpcionIds(), null, null);
         }
         recomputeTotals(orden);
         return ordenRepository.save(orden);
@@ -469,10 +469,10 @@ public class OrdenService {
                 .sorted(java.util.Comparator.comparing(OrdenDetalle::getCreatedAt,
                         java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
                 .map(i -> new PublicPedidoStatus.Linea(i.getId(), i.getProductoNombre(), i.getCantidad(), i.getSubtotal(),
-                        i.getModificadores().stream().map(m -> m.getGrupoNombre() + ": " + m.getNombre()
+                        com.nexora.restopos.util.ModsAgrupados.agrupar(i.getModificadores()).stream()
+                                .map(m -> m.grupoNombre() + ": " + m.nombreConCantidad()
                                 // El cliente ve cuánto le costó cada extra (el subtotal de la línea ya lo incluye).
-                                + (m.getPrecioExtra() != null && m.getPrecioExtra().signum() > 0
-                                        ? String.format(" (+$%,.2f)", m.getPrecioExtra()) : "")).toList()))
+                                + (m.precioExtra().signum() > 0 ? String.format(" (+$%,.2f)", m.total()) : "")).toList()))
                 .toList();
         LocalDateTime entregadoEn = "ENTREGADO".equals(estado) ? momentoEntrega(orden) : null;
         LocalDateTime reportarHasta = entregadoEn != null ? entregadoEn.plusHours(HORAS_PARA_REPORTAR) : null;
@@ -908,7 +908,7 @@ public class OrdenService {
         }
 
         OrdenDetalle saved = crearLinea(orden, producto, comensal, req.getCantidad(), descuento,
-                req.getObservaciones(), req.getModificadorOpcionIds(), actor);
+                req.getObservaciones(), req.getModificadorOpcionIds(), req.getExtrasLibres(), actor);
         if (descuento.signum() > 0) {
             auditoriaService.log(actor, "DESCUENTO_ITEM", "OrdenDetalle", saved.getId(), null, descuento, saved.getProductoNombre());
         }
@@ -926,11 +926,14 @@ public class OrdenService {
      * ({@link #crearPedidoWeb}).
      */
     private OrdenDetalle crearLinea(Orden orden, Product producto, Comensal comensal, BigDecimal cantidad,
-                                    BigDecimal descuento, String observaciones, List<Long> modificadorOpcionIds, User actor) {
+                                    BigDecimal descuento, String observaciones, List<Long> modificadorOpcionIds,
+                                    List<com.nexora.restopos.dto.ExtraLibreRequest> extrasLibres, User actor) {
         List<ModificadorOpcion> opcionesElegidas = resolverModificadoresElegidos(producto, modificadorOpcionIds);
+        List<OrdenDetalleModificador> libres = filasLibres(orden, extrasLibres);
         BigDecimal extrasUnitario = opcionesElegidas.stream()
                 .map(ModificadorOpcion::getPrecioExtra)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .add(libres.stream().map(OrdenDetalleModificador::getPrecioExtra).reduce(BigDecimal.ZERO, BigDecimal::add));
 
         // El subtotal SÍ incluye los extras (es lo que de verdad se cobra); precioUnitario se
         // deja en el precio base del producto para que el ticket pueda desglosar cada extra por
@@ -962,6 +965,14 @@ public class OrdenService {
             ordenDetalleModificadorRepository.save(m);
             saved.getModificadores().add(m);
         }
+        for (OrdenDetalleModificador m : libres) {
+            m.setOrdenDetalle(saved);
+            ordenDetalleModificadorRepository.save(m);
+            saved.getModificadores().add(m);
+        }
+        if (!libres.isEmpty() && actor != null) {
+            auditoriaService.log(actor, "EXTRA_LIBRE", "OrdenDetalle", saved.getId(), null, describirLibres(libres), saved.getProductoNombre());
+        }
         // Productos con "Lleva inventario": se descuenta lo vendido (y se agota si llega a 0).
         inventarioVentaService.descontar(saved, cantidad, actor);
         orden.getItems().add(saved);
@@ -975,11 +986,15 @@ public class OrdenService {
      * menos una — antes de dejar agregar el producto a la orden.
      */
     private List<ModificadorOpcion> resolverModificadoresElegidos(Product producto, List<Long> modificadorOpcionIds) {
-        List<Long> ids = modificadorOpcionIds != null ? modificadorOpcionIds : List.of();
-        List<ModificadorOpcion> elegidas = ids.isEmpty() ? List.of() : modificadorOpcionRepository.findAllById(ids);
-        if (elegidas.size() != ids.size()) {
+        List<Long> ids = modificadorOpcionIds != null ? modificadorOpcionIds.stream().filter(java.util.Objects::nonNull).toList() : List.of();
+        // Un id repetido es la misma opción pedida varias veces (Cebolla x3): solo en grupos que lo permiten.
+        List<Long> distintos = ids.stream().distinct().toList();
+        List<ModificadorOpcion> encontradas = distintos.isEmpty() ? List.of() : modificadorOpcionRepository.findAllById(distintos);
+        if (encontradas.size() != distintos.size()) {
             throw new IllegalArgumentException("Una o más opciones de modificador no existen");
         }
+        Map<Long, ModificadorOpcion> porId = encontradas.stream().collect(Collectors.toMap(ModificadorOpcion::getId, o -> o));
+        List<ModificadorOpcion> elegidas = ids.stream().map(porId::get).toList();
 
         List<ModificadorGrupo> grupos = modificadorGrupoRepository
                 .findAllByProductoIdAndIsActiveTrueOrderByOrdenAscIdAsc(producto.getId());
@@ -1000,6 +1015,14 @@ public class OrdenService {
             if (grupo.getTipo() == ModificadorGrupoTipo.UNICO && deEsteGrupo.size() > 1) {
                 throw new IllegalArgumentException("\"" + grupo.getNombre() + "\" solo admite una opción");
             }
+            boolean repite = deEsteGrupo.stream().map(ModificadorOpcion::getId).distinct().count() < deEsteGrupo.size();
+            boolean puedeRepetir = grupo.getTipo() == ModificadorGrupoTipo.MULTIPLE && Boolean.TRUE.equals(grupo.getPermiteRepetir());
+            if (repite && !puedeRepetir) {
+                throw new IllegalArgumentException("En \"" + grupo.getNombre() + "\" no se puede repetir la misma opción");
+            }
+            if (deEsteGrupo.size() > 50) {
+                throw new IllegalArgumentException("En \"" + grupo.getNombre() + "\" son demasiadas piezas");
+            }
             if (grupo.getTipo() == ModificadorGrupoTipo.MULTIPLE && grupo.getMaxSelecciones() != null
                     && deEsteGrupo.size() > grupo.getMaxSelecciones()) {
                 throw new IllegalArgumentException("En \"" + grupo.getNombre() + "\" puedes elegir máximo "
@@ -1007,6 +1030,43 @@ public class OrdenService {
             }
         }
         return elegidas;
+    }
+
+    /** Nombre del grupo con el que se guardan los extras libres (así salen en la cuenta y el ticket). */
+    private static final String GRUPO_EXTRA_LIBRE = "Extra";
+
+    /**
+     * Filas (sin guardar) de los extras libres de una línea: una por pieza, marcadas {@code libre}.
+     * Solo si la tienda los tiene activados; una lista vacía no exige nada (sirve para quitarlos).
+     */
+    private List<OrdenDetalleModificador> filasLibres(Orden orden, List<com.nexora.restopos.dto.ExtraLibreRequest> extras) {
+        if (extras == null || extras.isEmpty()) return List.of();
+        if (orden.getTienda() == null || !Boolean.TRUE.equals(orden.getTienda().getExtraLibre())) {
+            throw new IllegalStateException("Los extras libres no están activados en esta tienda");
+        }
+        List<OrdenDetalleModificador> filas = new java.util.ArrayList<>();
+        for (com.nexora.restopos.dto.ExtraLibreRequest e : extras) {
+            String nombre = e.getNombre() != null ? e.getNombre().trim() : "";
+            if (nombre.isEmpty()) throw new IllegalArgumentException("Escribe qué es el extra");
+            BigDecimal precio = e.getPrecio().setScale(2, java.math.RoundingMode.HALF_UP);
+            int cantidad = e.getCantidad() != null ? e.getCantidad() : 1;
+            for (int i = 0; i < cantidad; i++) {
+                OrdenDetalleModificador m = new OrdenDetalleModificador();
+                m.setGrupoNombre(GRUPO_EXTRA_LIBRE);
+                m.setNombre(nombre);
+                m.setPrecioExtra(precio);
+                m.setLibre(true);
+                filas.add(m);
+            }
+        }
+        return filas;
+    }
+
+    /** "Aguacate x1 $12.00, Queso extra x2 $10.00" para la auditoría. */
+    private static String describirLibres(List<OrdenDetalleModificador> libres) {
+        return com.nexora.restopos.util.ModsAgrupados.agrupar(libres).stream()
+                .map(m -> m.nombre() + " x" + m.cantidad() + " $" + m.precioExtra().toPlainString())
+                .collect(Collectors.joining(", "));
     }
 
     /**
@@ -1051,7 +1111,9 @@ public class OrdenService {
                 ? req.getObservaciones().trim() : null;
         boolean cambiaObs = !java.util.Objects.equals(nuevasObs, item.getObservaciones());
         boolean subeCantidad = req.getCantidad().compareTo(item.getCantidad()) > 0;
-        boolean cambiaMods = req.getModificadorOpcionIds() != null;
+        boolean cambiaOpciones = req.getModificadorOpcionIds() != null;
+        boolean cambiaLibres = req.getExtrasLibres() != null;
+        boolean cambiaMods = cambiaOpciones || cambiaLibres;
 
         if (subeCantidad || cambiaMods) ensureNoSalioAEntregar(orden);
         boolean yaEntregado = item.getEstado() == OrdenDetalleEstado.ENTREGADO_MESERO
@@ -1060,7 +1122,7 @@ public class OrdenService {
             throw new IllegalStateException("Este producto ya salió de cocina: solo puedes cambiar el comensal o bajar la cantidad. "
                     + "Para pedir más, agrégalo como producto nuevo");
         }
-        if (cambiaMods && item.getProducto() == null) {
+        if (cambiaOpciones && item.getProducto() == null) {
             throw new IllegalStateException("No se pueden cambiar los modificadores: el producto ya no existe en el menú");
         }
         if (cambiaMods && facturada.compareTo(BigDecimal.ZERO) > 0) {
@@ -1070,9 +1132,10 @@ public class OrdenService {
         String anterior = describirItem(item);
 
         BigDecimal extrasUnitario;
-        if (cambiaMods) {
+        if (cambiaOpciones) {
             List<ModificadorOpcion> opciones = resolverModificadoresElegidos(item.getProducto(), req.getModificadorOpcionIds());
-            item.getModificadores().clear();
+            // Se reemplazan las opciones del menú; los extras libres se quedan (van aparte).
+            item.getModificadores().removeIf(m -> !Boolean.TRUE.equals(m.getLibre()));
             for (ModificadorOpcion opcion : opciones) {
                 OrdenDetalleModificador m = new OrdenDetalleModificador();
                 m.setOrdenDetalle(item);
@@ -1080,6 +1143,17 @@ public class OrdenService {
                 m.setNombre(opcion.getNombre());
                 m.setPrecioExtra(opcion.getPrecioExtra());
                 item.getModificadores().add(m);
+            }
+        }
+        if (cambiaLibres) {
+            List<OrdenDetalleModificador> libres = filasLibres(orden, req.getExtrasLibres());
+            item.getModificadores().removeIf(m -> Boolean.TRUE.equals(m.getLibre()));
+            for (OrdenDetalleModificador m : libres) {
+                m.setOrdenDetalle(item);
+                item.getModificadores().add(m);
+            }
+            if (!libres.isEmpty()) {
+                auditoriaService.log(actor, "EXTRA_LIBRE", "OrdenDetalle", item.getId(), null, describirLibres(libres), item.getProductoNombre());
             }
         }
         extrasUnitario = item.getModificadores().stream()
@@ -1109,8 +1183,8 @@ public class OrdenService {
     }
 
     private String describirItem(OrdenDetalle item) {
-        String mods = item.getModificadores().stream()
-                .map(m -> m.getGrupoNombre() + " " + m.getNombre())
+        String mods = com.nexora.restopos.util.ModsAgrupados.agrupar(item.getModificadores()).stream()
+                .map(m -> m.grupoNombre() + " " + m.nombreConCantidad())
                 .collect(Collectors.joining(", "));
         return item.getCantidad().stripTrailingZeros().toPlainString() + "x " + item.getProductoNombre()
                 + (item.getComensal() != null ? " · comensal " + item.getComensal().getNumero() : " · compartido")

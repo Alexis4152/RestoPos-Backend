@@ -20,6 +20,10 @@ public class OrdenItemUpdateRequest {
     private String observaciones;
     // null = conservar los modificadores actuales; lista (aunque sea vacía) = reemplazarlos.
     private List<Long> modificadorOpcionIds;
+    // null = conservar los extras libres actuales; lista (aunque sea vacía) = reemplazarlos.
+    @jakarta.validation.Valid
+    @jakarta.validation.constraints.Size(max = 10, message = "Máximo 10 extras libres por platillo")
+    private List<ExtraLibreRequest> extrasLibres;
     // Opcional: por qué se editó (ej. "el cliente regresó uno") — solo va a la auditoría.
     private String motivo;
 }

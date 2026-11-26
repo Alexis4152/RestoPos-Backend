@@ -118,12 +118,12 @@ public class TicketPdfService {
                 table.addCell(cell(money(unitario), Element.ALIGN_RIGHT));
                 table.addCell(cell(money(item.getMonto()), Element.ALIGN_RIGHT));
 
-                for (OrdenDetalleModificador mod : item.getOrdenDetalle().getModificadores()) {
-                    boolean tieneCosto = mod.getPrecioExtra().compareTo(BigDecimal.ZERO) > 0;
-                    table.addCell(cellSubtle("   " + mod.getGrupoNombre() + " " + mod.getNombre(), Element.ALIGN_LEFT));
+                for (com.nexora.restopos.util.ModsAgrupados.Mod mod : com.nexora.restopos.util.ModsAgrupados.agrupar(item.getOrdenDetalle().getModificadores())) {
+                    boolean tieneCosto = mod.precioExtra().compareTo(BigDecimal.ZERO) > 0;
+                    table.addCell(cellSubtle("   " + mod.grupoNombre() + " " + mod.nombreConCantidad(), Element.ALIGN_LEFT));
                     table.addCell(cellSubtle("", Element.ALIGN_CENTER));
                     table.addCell(cellSubtle("", Element.ALIGN_RIGHT));
-                    table.addCell(cellSubtle(tieneCosto ? money(mod.getPrecioExtra()) : "", Element.ALIGN_RIGHT));
+                    table.addCell(cellSubtle(tieneCosto ? money(mod.total()) : "", Element.ALIGN_RIGHT));
                 }
             }
             document.add(table);

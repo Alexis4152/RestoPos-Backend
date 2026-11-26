@@ -29,6 +29,9 @@ public class ModificadorGrupoRequest {
     @Max(value = 50, message = "El máximo no puede pasar de 50")
     private Integer maxSelecciones;
 
+    /** Solo para MULTIPLE: la misma opción se puede elegir varias veces; null = no. */
+    private Boolean permiteRepetir;
+
     @NotEmpty(message = "Agrega al menos una opción")
     @Valid
     private List<ModificadorOpcionRequest> opciones;

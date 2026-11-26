@@ -187,9 +187,9 @@ public class EscPosTicketService {
             String left = stripTrailingZeros(item.getCantidad()) + " x " + money(unitario);
             text(buf, padBetween(left, money(item.getMonto())) + "\n");
 
-            for (OrdenDetalleModificador mod : item.getOrdenDetalle().getModificadores()) {
-                boolean tieneCosto = mod.getPrecioExtra().compareTo(BigDecimal.ZERO) > 0;
-                text(buf, padBetween("  " + wrap(mod.getGrupoNombre() + " " + mod.getNombre()), tieneCosto ? money(mod.getPrecioExtra()) : "") + "\n");
+            for (com.nexora.restopos.util.ModsAgrupados.Mod mod : com.nexora.restopos.util.ModsAgrupados.agrupar(item.getOrdenDetalle().getModificadores())) {
+                boolean tieneCosto = mod.precioExtra().compareTo(BigDecimal.ZERO) > 0;
+                text(buf, padBetween("  " + wrap(mod.grupoNombre() + " " + mod.nombreConCantidad()), tieneCosto ? money(mod.total()) : "") + "\n");
             }
         }
         text(buf, line());

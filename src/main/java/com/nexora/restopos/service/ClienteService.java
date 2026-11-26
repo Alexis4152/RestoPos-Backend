@@ -268,6 +268,8 @@ public class ClienteService {
             List<PublicSiteDtos.ModCarrito> mods = new java.util.ArrayList<>();
             boolean faltoExtra = false;
             for (OrdenDetalleModificador m : d.getModificadores()) {
+                // Un extra libre (lo escribió el personal) no está en el menú: no se repite.
+                if (Boolean.TRUE.equals(m.getLibre())) { faltoExtra = true; continue; }
                 PublicSiteDtos.ModCarrito op = p.grupos().stream()
                         .filter(g -> g.nombre().equalsIgnoreCase(m.getGrupoNombre()))
                         .flatMap(g -> g.opciones().stream()
@@ -279,8 +281,9 @@ public class ClienteService {
             java.util.Set<Long> elegidas = mods.stream().map(PublicSiteDtos.ModCarrito::id).collect(java.util.stream.Collectors.toSet());
             boolean faltaObligatorio = p.grupos().stream().anyMatch(g -> g.obligatorio()
                     && g.opciones().stream().noneMatch(o -> elegidas.contains(o.id())));
+            // Cuenta piezas: una opción repetida (Cebolla x3) cuenta 3.
             boolean excedeMaximo = p.grupos().stream().anyMatch(g -> g.maxSelecciones() != null
-                    && g.opciones().stream().filter(o -> elegidas.contains(o.id())).count() > g.maxSelecciones());
+                    && mods.stream().filter(md -> g.opciones().stream().anyMatch(o -> o.id().equals(md.id()))).count() > g.maxSelecciones());
             if (faltaObligatorio || excedeMaximo) { cambiaron.add(p.nombre()); continue; }
             if (faltoExtra) cambiaron.add(p.nombre());
 

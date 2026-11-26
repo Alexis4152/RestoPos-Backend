@@ -142,6 +142,17 @@ public class TiendaController {
                 tiendaService.updateEnviarACocina(id, body.get("enviarACocina"), actor), "Envío a cocina guardado"));
     }
 
+    /** Extras libres al tomar la orden (nombre y precio a mano). Solo SUPER_ADMIN. */
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PutMapping("/{id}/extra-libre")
+    public ResponseEntity<ApiResponse<Tienda>> updateExtraLibre(
+            @PathVariable Long id,
+            @RequestBody java.util.Map<String, Boolean> body,
+            @AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                tiendaService.updateExtraLibre(id, body.get("extraLibre"), actor), "Extras libres guardados"));
+    }
+
     /** Seguimiento del repartidor en los pedidos a domicilio del punto de venta. Solo SUPER_ADMIN. */
     @PreAuthorize("hasRole('SUPER_ADMIN')")
     @PutMapping("/{id}/seguimiento-repartidor")

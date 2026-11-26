@@ -60,6 +60,7 @@ public class ModificadorGrupoService {
                         .tipo(g.getTipo())
                         .obligatorio(g.getObligatorio())
                         .maxSelecciones(g.getMaxSelecciones())
+                        .permiteRepetir(g.getPermiteRepetir())
                         .productoNombre(g.getProducto().getName())
                         .opciones(g.getOpciones().stream().filter(o -> Boolean.TRUE.equals(o.getIsActive())).toList())
                         .build())
@@ -72,11 +73,18 @@ public class ModificadorGrupoService {
      */
     private static Integer maxSelecciones(ModificadorGrupoRequest req) {
         if (req.getTipo() != com.nexora.restopos.model.ModificadorGrupoTipo.MULTIPLE || req.getMaxSelecciones() == null) return null;
+        // Si se pueden repetir, el máximo cuenta piezas: puede pasar del número de opciones.
+        if (permiteRepetir(req)) return req.getMaxSelecciones();
         int opciones = req.getOpciones() != null ? req.getOpciones().size() : 0;
         if (req.getMaxSelecciones() > opciones) {
             throw new IllegalArgumentException("El máximo (" + req.getMaxSelecciones() + ") no puede ser mayor que las opciones del grupo (" + opciones + ")");
         }
         return req.getMaxSelecciones();
+    }
+
+    /** Repetir la misma opción solo aplica a grupos de varias opciones. */
+    private static boolean permiteRepetir(ModificadorGrupoRequest req) {
+        return req.getTipo() == com.nexora.restopos.model.ModificadorGrupoTipo.MULTIPLE && Boolean.TRUE.equals(req.getPermiteRepetir());
     }
 
     public ModificadorGrupo findById(Long id, User actor) {
@@ -98,6 +106,7 @@ public class ModificadorGrupoService {
         grupo.setTipo(req.getTipo());
         grupo.setObligatorio(Boolean.TRUE.equals(req.getObligatorio()));
         grupo.setMaxSelecciones(maxSelecciones(req));
+        grupo.setPermiteRepetir(permiteRepetir(req));
         // Los grupos nuevos van al final de los que ya tiene el platillo.
         grupo.setOrden(modificadorGrupoRepository.findAllByProductoIdAndIsActiveTrueOrderByOrdenAscIdAsc(productoId).stream()
                 .mapToInt(g -> g.getOrden() == null ? 0 : g.getOrden()).max().orElse(-1) + 1);
@@ -132,6 +141,7 @@ public class ModificadorGrupoService {
         grupo.setTipo(req.getTipo());
         grupo.setObligatorio(Boolean.TRUE.equals(req.getObligatorio()));
         grupo.setMaxSelecciones(maxSelecciones(req));
+        grupo.setPermiteRepetir(permiteRepetir(req));
         grupo.setUpdatedBy(actor);
         modificadorGrupoRepository.save(grupo);
 

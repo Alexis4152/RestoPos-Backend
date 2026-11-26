@@ -48,8 +48,9 @@ public class ComandaTicketService {
             ctl(buf, 0x1B, 0x45, 0x00);
             ctl(buf, 0x1D, 0x21, 0x00);
             if (d.getModificadores() != null) {
-                for (OrdenDetalleModificador m : d.getModificadores()) {
-                    for (String l : partir("  + " + m.getNombre())) text(buf, l + "\n");
+                // Cocina ve el extra por su nombre ("Cebolla x3", "Aguacate"), sin marcar si es libre.
+                for (com.nexora.restopos.util.ModsAgrupados.Mod m : com.nexora.restopos.util.ModsAgrupados.agrupar(d.getModificadores())) {
+                    for (String l : partir("  + " + m.nombreConCantidad())) text(buf, l + "\n");
                 }
             }
             if (d.getComensal() != null) {
