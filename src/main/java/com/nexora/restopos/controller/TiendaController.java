@@ -142,6 +142,17 @@ public class TiendaController {
                 tiendaService.updateEnviarACocina(id, body.get("enviarACocina"), actor), "Envío a cocina guardado"));
     }
 
+    /** Seguimiento del repartidor en los pedidos a domicilio del punto de venta. Solo SUPER_ADMIN. */
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PutMapping("/{id}/seguimiento-repartidor")
+    public ResponseEntity<ApiResponse<Tienda>> updateSeguimientoRepartidor(
+            @PathVariable Long id,
+            @RequestBody java.util.Map<String, Boolean> body,
+            @AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                tiendaService.updateSeguimientoRepartidor(id, body.get("seguimientoRepartidor"), actor), "Seguimiento del repartidor guardado"));
+    }
+
     // El ADMIN de una tienda también puede cambiar SU propio color de marca —
     // este método sobreescribe el @PreAuthorize de la clase.
     /**

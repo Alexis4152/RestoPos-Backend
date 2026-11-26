@@ -221,6 +221,15 @@ public class OrdenController {
         return ResponseEntity.ok(ApiResponse.ok(ordenService.entregarTodo(id, actor), "Pedido entregado"));
     }
 
+    /** Envío gratis ({"gratis": true}) o con su costo ({"gratis": false}) en un pedido a domicilio del punto de venta. */
+    @PutMapping("/{id}/envio-gratis")
+    public ResponseEntity<ApiResponse<Orden>> envioGratis(@PathVariable Long id, @RequestBody java.util.Map<String, Boolean> body,
+                                                          @AuthenticationPrincipal User actor) {
+        boolean gratis = Boolean.TRUE.equals(body.get("gratis"));
+        return ResponseEntity.ok(ApiResponse.ok(ordenService.cambiarEnvioGratis(id, gratis, actor),
+                gratis ? "Envío gratis" : "Envío con costo"));
+    }
+
     @PostMapping("/{id}/cancel")
     public ResponseEntity<ApiResponse<Void>> cancelar(@PathVariable Long id, @RequestBody(required = false) CancelRequest req,
                                                        @AuthenticationPrincipal User actor) {

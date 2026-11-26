@@ -133,10 +133,14 @@ public class OrdenService {
     }
 
     /** Agrega a la orden la línea de cargo "Envío a domicilio" (no recalcula totales). */
+    /** Nombre de la línea de envío (sale así en la cuenta y en el ticket). */
+    public static final String ENVIO_NOMBRE = "Envío a domicilio";
+    public static final String ENVIO_GRATIS_NOMBRE = "Envío a domicilio GRATIS";
+
     private void agregarCargoEnvio(Orden orden, BigDecimal costo) {
         OrdenDetalle envio = new OrdenDetalle();
         envio.setOrden(orden);
-        envio.setProductoNombre("Envío a domicilio");
+        envio.setProductoNombre(costo.signum() == 0 ? ENVIO_GRATIS_NOMBRE : ENVIO_NOMBRE);
         envio.setCantidad(BigDecimal.ONE);
         envio.setPrecioUnitario(costo);
         envio.setDescuento(BigDecimal.ZERO);
@@ -788,6 +792,8 @@ public class OrdenService {
         orden.setClienteTelefono(mesa == null && !clienteTelefono.isEmpty() ? clienteTelefono : null);
         // DOMICILIO: aparece en la pantalla de Entregas para que un repartidor la lleve.
         orden.setTipoEntrega(tipo);
+        // Sin seguimiento del repartidor en esta tienda: se cobra y entrega como para llevar.
+        orden.setSinSeguimiento(domicilio && tiendaOrden != null && Boolean.FALSE.equals(tiendaOrden.getSeguimientoRepartidor()));
         orden.setEstado(OrdenEstado.ABIERTA);
         Orden saved = ordenRepository.save(orden);
 
@@ -1279,7 +1285,54 @@ public class OrdenService {
     public static boolean cobroAnticipado(Orden orden) {
         String tipo = orden.getTipoEntrega();
         return "PARA_LLEVAR".equals(tipo) || "COMER_AQUI".equals(tipo) || "RECOGER".equals(tipo)
-                || (tipo == null && orden.getMesa() == null);
+                || (tipo == null && orden.getMesa() == null)
+                || ("DOMICILIO".equals(tipo) && Boolean.TRUE.equals(orden.getSinSeguimiento()));
+    }
+
+    /** A domicilio con seguimiento del repartidor (pantalla Entregas): él marca la entrega y cobra. */
+    public static boolean conRepartidor(Orden orden) {
+        return "DOMICILIO".equals(orden.getTipoEntrega()) && !Boolean.TRUE.equals(orden.getSinSeguimiento());
+    }
+
+    /**
+     * Envío gratis o con costo en un pedido a domicilio del punto de venta: el dueño decide
+     * cuándo no se cobra. Gratis deja la línea de envío en $0 con el nombre "Envío a domicilio
+     * GRATIS" (así sale en la cuenta y en el ticket); cobrarlo la regresa al costo configurado.
+     * Solo mientras el envío no esté en una cuenta.
+     */
+    @Transactional
+    public Orden cambiarEnvioGratis(Long ordenId, boolean gratis, User actor) {
+        Orden orden = findById(ordenId, actor);
+        ensureModificable(orden);
+        if (!"DOMICILIO".equals(orden.getTipoEntrega())) {
+            throw new IllegalArgumentException("Solo los pedidos a domicilio llevan envío");
+        }
+        if ("WEB".equals(orden.getOrigen())) {
+            throw new IllegalStateException("El envío de un pedido de la página web no se cambia: el cliente ya vio su total");
+        }
+        OrdenDetalle linea = orden.getItems().stream()
+                .filter(i -> Boolean.TRUE.equals(i.getCargoExtra()) && i.getEstado() != OrdenDetalleEstado.CANCELADO)
+                .findFirst().orElse(null);
+        if (linea != null && linea.getCantidadFacturada().signum() > 0) {
+            throw new IllegalStateException("El envío ya está en una cuenta: cancela esa cuenta para cambiarlo");
+        }
+        BigDecimal costo = gratis ? BigDecimal.ZERO : costoEnvioDomicilio(orden.getTienda());
+        if (costo == null) throw new IllegalStateException("El administrador no ha configurado el costo de envío a domicilio");
+        BigDecimal anterior = linea != null ? linea.getSubtotal() : null;
+        if (linea == null) {
+            agregarCargoEnvio(orden, costo);
+        } else {
+            linea.setPrecioUnitario(costo);
+            linea.setDescuento(BigDecimal.ZERO);
+            linea.setSubtotal(costo.multiply(linea.getCantidad()));
+            linea.setProductoNombre(gratis ? ENVIO_GRATIS_NOMBRE : ENVIO_NOMBRE);
+            ordenDetalleRepository.save(linea);
+        }
+        recomputeTotals(orden);
+        Orden saved = ordenRepository.save(orden);
+        auditoriaService.log(actor, gratis ? "ENVIO_GRATIS" : "COBRAR_ENVIO", "Orden", saved.getId(), anterior, costo,
+                gratis ? "Envío gratis" : "Se vuelve a cobrar el envío");
+        return saved;
     }
 
     /**
@@ -1363,7 +1416,7 @@ public class OrdenService {
     public int cerrarCobradasSinEntregar(LocalDateTime antes) {
         int cerradas = 0;
         for (Orden orden : ordenRepository.findByPagadoAtBeforeAndEstadoNotIn(antes, List.of(OrdenEstado.PAGADA, OrdenEstado.CANCELADA))) {
-            if (!cobroAnticipado(orden) || "DOMICILIO".equals(orden.getTipoEntrega())) continue;
+            if (!cobroAnticipado(orden) || conRepartidor(orden)) continue;
             List<String> marcados = entregarPendientes(orden);
             marcarPagadaSiCorresponde(orden);
             if (orden.getEstado() != OrdenEstado.PAGADA) continue; // aún debe algo: no se toca
@@ -1605,7 +1658,7 @@ public class OrdenService {
      * nuevos ni más cantidad: el repartidor ya va con lo que lleva; algo más es otro pedido.
      */
     private void ensureNoSalioAEntregar(Orden orden) {
-        if ("DOMICILIO".equals(orden.getTipoEntrega()) && (orden.getEnCaminoAt() != null || orden.getEntregadaAt() != null)) {
+        if (conRepartidor(orden) && (orden.getEnCaminoAt() != null || orden.getEntregadaAt() != null)) {
             throw new IllegalStateException("Este pedido ya va en camino: para agregar algo más, haz un pedido nuevo");
         }
     }

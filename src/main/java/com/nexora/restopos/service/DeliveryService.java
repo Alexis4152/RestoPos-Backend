@@ -378,6 +378,9 @@ public class DeliveryService {
     private Orden envioPendiente(Long ordenId, User actor) {
         Orden orden = ordenService.findById(ordenId, actor);
         if (!"DOMICILIO".equals(orden.getTipoEntrega())) throw new IllegalArgumentException("Este pedido no es a domicilio");
+        if (Boolean.TRUE.equals(orden.getSinSeguimiento())) {
+            throw new IllegalStateException("Este pedido no usa seguimiento del repartidor: se cobra y se entrega desde caja");
+        }
         if (orden.getEstado() == OrdenEstado.CANCELADA) throw new IllegalStateException("Este pedido fue cancelado");
         if (Boolean.TRUE.equals(orden.getPendienteAceptar())) throw new IllegalStateException("Este pedido todavía no se acepta");
         if (orden.getEntregadaAt() != null) throw new IllegalStateException("Este pedido ya se entregó");

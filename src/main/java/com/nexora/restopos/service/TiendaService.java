@@ -228,6 +228,19 @@ public class TiendaService {
      * Activa o desactiva "Enviar a cocina" en la tienda (botón y a qué impresora sale la
      * comanda). Solo SUPER_ADMIN (lo restringe el controller).
      */
+    /**
+     * Activa o desactiva el seguimiento del repartidor para los pedidos a domicilio del punto
+     * de venta. Aplica a los pedidos nuevos; los ya capturados siguen como nacieron. Solo
+     * SUPER_ADMIN (lo restringe el controller).
+     */
+    public Tienda updateSeguimientoRepartidor(Long id, Boolean seguimiento, User actor) {
+        if (seguimiento == null) throw new IllegalArgumentException("Indica si se usa el seguimiento del repartidor");
+        Tienda t = findById(id);
+        t.setSeguimientoRepartidor(seguimiento);
+        t.setUpdatedBy(actor);
+        return tiendaRepository.save(t);
+    }
+
     public Tienda updateEnviarACocina(Long id, Boolean enviarACocina, User actor) {
         if (enviarACocina == null) throw new IllegalArgumentException("Indica si se envía a cocina");
         Tienda t = findById(id);

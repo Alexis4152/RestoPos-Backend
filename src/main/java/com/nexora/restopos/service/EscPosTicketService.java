@@ -92,20 +92,31 @@ public class EscPosTicketService {
      * @param abrirCajon {@code false} para no agregar el pulso del cajón aunque haya efectivo
      */
     public String build(Cuenta cuenta, int copias, boolean abrirCajon) {
+        return String.join("", buildCopias(cuenta, copias, abrirCajon));
+    }
+
+    /**
+     * Las mismas copias que {@link #build(Cuenta, int, boolean)}, pero cada una por separado
+     * (hex), para mandarlas a la impresora como trabajos distintos: así cada copia sale cortada
+     * aunque la impresora solo corte al terminar un trabajo. El pulso del cajón, si aplica, va
+     * al final de la última.
+     */
+    public java.util.List<String> buildCopias(Cuenta cuenta, int copias, boolean abrirCajon) {
         int n = Math.max(1, Math.min(copias, 3));
         boolean porPagar = cuenta.getEstado() == CuentaEstado.PENDIENTE;
-        ByteArrayOutputStream buf = new ByteArrayOutputStream();
-        boolean huboEfectivo = false;
+        java.util.List<String> out = new java.util.ArrayList<>();
         for (int i = 0; i < n; i++) {
+            ByteArrayOutputStream buf = new ByteArrayOutputStream();
             String etiqueta = n == 1 ? null : i == 0 ? "COPIA CLIENTE" : i == 1 ? "COPIA COMERCIO" : "COPIA " + (i + 1);
-            huboEfectivo = copia(buf, cuenta, etiqueta, porPagar, i == 0);
+            boolean huboEfectivo = copia(buf, cuenta, etiqueta, porPagar, i == 0);
+            // Solo se abre el cajon si hubo al menos un pago en efectivo (ver Javadoc de build()).
+            // ESC p m t1 t2 : pulso al pin 2 del conector RJ11 del cajon (m=0).
+            if (i == n - 1 && huboEfectivo && abrirCajon) {
+                ctl(buf, 0x1B, 0x70, 0x00, 0x19, 0xFA);
+            }
+            out.add(toHex(buf.toByteArray()));
         }
-        // Solo se abre el cajon si hubo al menos un pago en efectivo (ver Javadoc de build()).
-        // ESC p m t1 t2 : pulso al pin 2 del conector RJ11 del cajon (m=0).
-        if (huboEfectivo && abrirCajon) {
-            ctl(buf, 0x1B, 0x70, 0x00, 0x19, 0xFA);
-        }
-        return toHex(buf.toByteArray());
+        return out;
     }
 
     /**
@@ -240,11 +251,11 @@ public class EscPosTicketService {
         }
         text(buf, "Gracias por su visita\n");
         ctl(buf, 0x1B, 0x61, 0x00);
-        text(buf, "\n\n\n");
-        // GS V 0 : corte COMPLETO al final de cada copia. Antes era parcial (GS V 1), que deja
-        // una tira sin cortar a propósito: con 2 copias (cliente / comercio) salían unidas y
-        // había que arrancarlas a mano. Completo, cada copia sale suelta.
-        ctl(buf, 0x1D, 0x56, 0x00);
+        text(buf, "\n\n");
+        // GS V A n : avanza el papel hasta la cuchilla (+ n puntos) y hace corte COMPLETO al
+        // final de cada copia. Es la forma que reconocen más modelos; con GS V 0 (cortar donde
+        // va el papel) algunas impresoras dejaban las 2 copias (cliente / comercio) unidas.
+        ctl(buf, 0x1D, 0x56, 0x41, 0x10);
         return huboEfectivo;
     }
 

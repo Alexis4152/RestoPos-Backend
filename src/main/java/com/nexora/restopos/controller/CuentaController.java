@@ -104,6 +104,21 @@ public class CuentaController {
         return ResponseEntity.ok(ApiResponse.ok(hex));
     }
 
+    /**
+     * Igual que {@link #ticketEscPos}, pero cada copia por separado: el frontend manda cada una
+     * como un trabajo de impresión distinto para que la impresora corte entre copias.
+     */
+    @GetMapping("/api/accounts/{id}/ticket-escpos-copias")
+    @PreAuthorize("@sectionAccess.checkAny('ORDERS', 'SALES')")
+    public ResponseEntity<ApiResponse<java.util.List<String>>> ticketEscPosCopias(@PathVariable Long id,
+                                                                                  @RequestParam(defaultValue = "1") int copias,
+                                                                                  @RequestParam(defaultValue = "true") boolean abrirCajon,
+                                                                                  @AuthenticationPrincipal User actor) {
+        Cuenta cuenta = cuentaService.findById(id, actor);
+        impresionCuentaPolicy.assertPuedeImprimir(cuenta, actor);
+        return ResponseEntity.ok(ApiResponse.ok(escPosTicketService.buildCopias(cuenta, copias, abrirCajon)));
+    }
+
     @PostMapping("/api/accounts/{id}/ticket/email")
     @PreAuthorize("@sectionAccess.check('ORDERS')")
     public ResponseEntity<ApiResponse<Void>> emailTicket(@PathVariable Long id, @Valid @RequestBody TicketEmailRequest req,

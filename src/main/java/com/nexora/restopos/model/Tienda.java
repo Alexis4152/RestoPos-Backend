@@ -116,6 +116,15 @@ public class Tienda {
     @Builder.Default
     private Boolean enviarACocina = true;
 
+    // Seguimiento del repartidor en los pedidos a domicilio capturados en el punto de venta.
+    // true: van a la pantalla Entregas (el repartidor lo toma, sale y cobra al entregar).
+    // false: para restaurantes con repartidores externos; se cobran en caja y se marcan
+    // entregados como un pedido para llevar. Los de la página web siempre llevan seguimiento.
+    // Solo lo cambia el SUPER_ADMIN.
+    @Column(nullable = false, columnDefinition = "boolean default true")
+    @Builder.Default
+    private Boolean seguimientoRepartidor = true;
+
     // El supervisor (dueño) recibe el reporte de fin de día de cada caja por default; puede
     // desactivarlo si prefiere que solo les llegue a los destinatarios que configuró (ver
     // CashReportRecipient / CashReportRecipientService).

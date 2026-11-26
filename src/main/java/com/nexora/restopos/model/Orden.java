@@ -184,6 +184,12 @@ public class Orden {
 
     private LocalDateTime reporteAt;
 
+    // A domicilio sin seguimiento del repartidor (la tienda lo tenía apagado al capturarlo, ver
+    // Tienda.seguimientoRepartidor): no va a Entregas; se cobra en caja y se entrega como para llevar.
+    @Column(name = "sin_seguimiento", nullable = false, columnDefinition = "boolean default false")
+    @Builder.Default
+    private Boolean sinSeguimiento = false;
+
     @Column(nullable = false, precision = 12, scale = 2)
     @Builder.Default
     private BigDecimal subtotal = BigDecimal.ZERO;

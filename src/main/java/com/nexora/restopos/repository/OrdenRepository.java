@@ -93,7 +93,7 @@ public interface OrdenRepository extends JpaRepository<Orden, Long> {
      */
     @Query("SELECT o FROM Orden o WHERE " +
            "(:tiendaId IS NULL OR o.tienda.id = :tiendaId) " +
-           "AND o.tipoEntrega = 'DOMICILIO' " +
+           "AND o.tipoEntrega = 'DOMICILIO' AND o.sinSeguimiento = false " +
            "AND o.pendienteAceptar = false " +
            "AND o.entregadaAt IS NULL " +
            "AND o.estado <> com.nexora.restopos.model.OrdenEstado.CANCELADA " +
