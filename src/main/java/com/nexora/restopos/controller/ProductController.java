@@ -159,6 +159,24 @@ public class ProductController {
      * @param size   tamaño de página (por defecto 20)
      * @param actor  usuario autenticado; determina el grupo de tiendas hermanas
      */
+    /**
+     * Platillos por páginas para la pantalla de Platillos (todos los activos, lleven o no
+     * inventario), con búsqueda por nombre/código y categoría, ordenados por nombre.
+     */
+    @GetMapping("/menu-page")
+    @PreAuthorize("@sectionAccess.check('MENU')")
+    public ResponseEntity<ApiResponse<PageResponse<Product>>> menuPage(@RequestParam(required = false) String q,
+                                                                        @RequestParam(required = false) Long categoryId,
+                                                                        @RequestParam(defaultValue = "0") int page,
+                                                                        @RequestParam(defaultValue = "20") int size,
+                                                                        @AuthenticationPrincipal User actor) {
+        Pageable pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 100),
+                org.springframework.data.domain.Sort.by("name").and(org.springframework.data.domain.Sort.by("id")));
+        String texto = q != null && !q.isBlank() ? q.trim() : null;
+        Page<Product> result = productService.search(texto, categoryId, null, false, pageable, actor);
+        return ResponseEntity.ok(ApiResponse.ok(PageResponse.of(result), null));
+    }
+
     @GetMapping("/sibling-stock")
     @PreAuthorize("@sectionAccess.check('INVENTORY')")
     public ResponseEntity<ApiResponse<PageResponse<Product>>> siblingStock(@RequestParam String q,

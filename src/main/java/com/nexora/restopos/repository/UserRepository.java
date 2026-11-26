@@ -67,6 +67,32 @@ public interface UserRepository extends JpaRepository<User, Long> {
                        @Param("isActive") Boolean isActive,
                        @Param("extraUserId") Long extraUserId);
 
+    /** Lo mismo que {@link #search}, por páginas (pantalla de Usuarios), ordenado por nombre. */
+    @Query(value = "SELECT u FROM User u WHERE " +
+           "(:tiendaId IS NULL OR u.tienda.id = :tiendaId OR u.id = :extraUserId) " +
+           "AND u.createdAt BETWEEN :from AND :to " +
+           "AND (:name IS NULL OR LOWER(u.name) LIKE LOWER(CONCAT('%', CAST(:name AS string), '%'))) " +
+           "AND (:email IS NULL OR LOWER(u.email) LIKE LOWER(CONCAT('%', CAST(:email AS string), '%'))) " +
+           "AND (:roleId IS NULL OR u.role.id = :roleId) " +
+           "AND (:isActive IS NULL OR u.isActive = :isActive) "+
+           "ORDER BY u.name ASC, u.id ASC",
+           countQuery = "SELECT COUNT(u) FROM User u WHERE " +
+           "(:tiendaId IS NULL OR u.tienda.id = :tiendaId OR u.id = :extraUserId) " +
+           "AND u.createdAt BETWEEN :from AND :to " +
+           "AND (:name IS NULL OR LOWER(u.name) LIKE LOWER(CONCAT('%', CAST(:name AS string), '%'))) " +
+           "AND (:email IS NULL OR LOWER(u.email) LIKE LOWER(CONCAT('%', CAST(:email AS string), '%'))) " +
+           "AND (:roleId IS NULL OR u.role.id = :roleId) " +
+           "AND (:isActive IS NULL OR u.isActive = :isActive) ")
+    org.springframework.data.domain.Page<User> searchPage(@Param("tiendaId") Long tiendaId,
+                       @Param("from") LocalDateTime from,
+                       @Param("to") LocalDateTime to,
+                       @Param("name") String name,
+                       @Param("email") String email,
+                       @Param("roleId") Long roleId,
+                       @Param("isActive") Boolean isActive,
+                       @Param("extraUserId") Long extraUserId,
+                       org.springframework.data.domain.Pageable pageable);
+
     // para avisarle por correo al/los admin(es) de una tienda cuando se autocierra un corte
     /** Lista los usuarios activos con rol ADMIN de una tienda; usado para notificarles por correo cuando el job autocierra un corte. */
     @Query("SELECT u FROM User u WHERE u.tienda.id = :tiendaId AND u.role.name = 'ADMIN' AND u.isActive = true")

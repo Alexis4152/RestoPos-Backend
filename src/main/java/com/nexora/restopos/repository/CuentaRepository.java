@@ -42,20 +42,47 @@ public interface CuentaRepository extends JpaRepository<Cuenta, Long> {
                          @Param("metodo") PaymentMethod metodo,
                          Pageable pageable);
 
-    // Usado por el módulo de Ventas (ver CuentaService#searchVentas) para agrupar por orden:
-    // primero se resuelven los ids de las órdenes que tienen al menos una cuenta dentro del
-    // filtro de fecha/método (el estado no se filtra aquí porque es una propiedad agregada de
-    // TODAS las cuentas de la orden, no de una cuenta suelta — se calcula y filtra en Java).
-    /** Ids de órdenes (sin duplicados) con al menos una cuenta que cumple fecha/método, más recientes primero. */
-    @Query("SELECT DISTINCT o.id FROM Cuenta c JOIN c.orden o LEFT JOIN c.pagos p WHERE " +
-           "(:tiendaId IS NULL OR o.tienda.id = :tiendaId) " +
-           "AND c.createdAt BETWEEN :from AND :to " +
-           "AND (:metodo IS NULL OR (p.metodo = :metodo AND p.cancelado = false)) " +
-           "ORDER BY o.id DESC")
-    List<Long> searchOrdenIds(@Param("tiendaId") Long tiendaId,
-                               @Param("from") LocalDateTime from,
-                               @Param("to") LocalDateTime to,
-                               @Param("metodo") PaymentMethod metodo);
+    // Módulo de Ventas (ver CuentaService#searchVentas): una venta es una orden con al menos una
+    // cuenta dentro del filtro de fecha/método. Todo se resuelve en SQL, incluida la página, para
+    // no cargar el historial completo en memoria en cada consulta.
+    //
+    // Estado agregado de la orden (mismo criterio que CuentaService#calcularEstadoAgregado):
+    // CANCELADA si todas sus cuentas están canceladas; PAGADA si todas las no canceladas se
+    // cobraron; PENDIENTE en cualquier otro caso.
+    String ESTADO_AGREGADO =
+            "(SELECT CASE WHEN COUNT(*) FILTER (WHERE ce.estado <> 'CANCELADA') = 0 THEN 'CANCELADA' " +
+            " WHEN COUNT(*) FILTER (WHERE ce.estado NOT IN ('CANCELADA', 'PAGADA')) = 0 THEN 'PAGADA' " +
+            " ELSE 'PENDIENTE' END FROM cuentas ce WHERE ce.orden_id = o.id)";
+    // Enums como texto (name()) para que PostgreSQL no tenga que adivinar el tipo de un null.
+    String VENTAS_WHERE =
+            "WHERE (CAST(:tiendaId AS bigint) IS NULL OR o.tienda_id = :tiendaId) " +
+            "AND o.id IN (SELECT c.orden_id FROM cuentas c LEFT JOIN pagos p ON p.cuenta_id = c.id " +
+            "  WHERE c.created_at BETWEEN :from AND :to " +
+            "  AND (CAST(:metodo AS varchar) IS NULL OR (p.metodo = CAST(:metodo AS varchar) AND p.cancelado = false))) " +
+            "AND (CAST(:estado AS varchar) IS NULL OR " + ESTADO_AGREGADO + " = CAST(:estado AS varchar)) ";
+
+    /**
+     * Ids de las órdenes de una página de Ventas, de la cuenta más reciente a la más antigua.
+     * {@code estado} y {@code metodo} van como texto ({@code name()} del enum) o null.
+     */
+    @Query(nativeQuery = true, value = "SELECT o.id FROM ordenes o " + VENTAS_WHERE +
+            "ORDER BY (SELECT MAX(cf.created_at) FROM cuentas cf WHERE cf.orden_id = o.id) DESC, o.id DESC " +
+            "LIMIT :limit OFFSET :offset")
+    List<Long> searchVentaIds(@Param("tiendaId") Long tiendaId,
+                              @Param("from") LocalDateTime from,
+                              @Param("to") LocalDateTime to,
+                              @Param("estado") String estado,
+                              @Param("metodo") String metodo,
+                              @Param("limit") int limit,
+                              @Param("offset") long offset);
+
+    /** Total de ventas (órdenes) que cumplen el mismo filtro que {@link #searchVentaIds}. */
+    @Query(nativeQuery = true, value = "SELECT COUNT(*) FROM ordenes o " + VENTAS_WHERE)
+    long countVentas(@Param("tiendaId") Long tiendaId,
+                     @Param("from") LocalDateTime from,
+                     @Param("to") LocalDateTime to,
+                     @Param("estado") String estado,
+                     @Param("metodo") String metodo);
 
     /** Cuentas por cobrar generadas desde {@code desde} (avisos de la caja), más recientes primero. */
     @Query("SELECT c FROM Cuenta c JOIN c.orden o WHERE (:tiendaId IS NULL OR o.tienda.id = :tiendaId) " +

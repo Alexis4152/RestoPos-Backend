@@ -68,6 +68,23 @@ public class UserController {
      * @param id    identificador del usuario
      * @param actor usuario autenticado
      */
+    /** Lo mismo que {@link #list}, por páginas: la tabla de la pantalla de Usuarios. */
+    @GetMapping("/page")
+    public ResponseEntity<ApiResponse<com.nexora.restopos.dto.PageResponse<User>>> page(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
+            @RequestParam(required = false) String name,
+            @RequestParam(required = false) String email,
+            @RequestParam(required = false) Long roleId,
+            @RequestParam(required = false) Boolean isActive,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @AuthenticationPrincipal User actor) {
+        var pageable = org.springframework.data.domain.PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 100));
+        return ResponseEntity.ok(ApiResponse.ok(com.nexora.restopos.dto.PageResponse.of(
+                userService.findPage(from, to, name, email, roleId, isActive, pageable, actor)), null));
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<User>> get(@PathVariable Long id, @AuthenticationPrincipal User actor) {
         return ResponseEntity.ok(ApiResponse.ok(userService.findById(id, actor), null));

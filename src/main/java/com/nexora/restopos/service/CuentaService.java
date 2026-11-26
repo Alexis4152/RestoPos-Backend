@@ -112,16 +112,15 @@ public class CuentaService {
      * haberse cobrado con una mezcla de cuentas (Total, Por comensal, Personalizada), y aquí se
      * resume en un solo {@link VentaResumen} por orden en vez de una fila por cada cuenta suelta.
      * <p>
-     * El filtro de fecha/método se resuelve en SQL (ver {@link CuentaRepository#searchOrdenIds}),
-     * pero el de {@code estado} es una propiedad AGREGADA (depende de todas las cuentas de la
-     * orden a la vez, no de una sola) y por eso se calcula y filtra en Java después de cargar el
-     * desglose completo de cada orden candidata — ver {@link #calcularEstadoAgregado}.
+     * Los filtros y la página se resuelven en SQL (ver {@link CuentaRepository#searchVentaIds},
+     * que también calcula el estado agregado); después solo se cargan las cuentas de las órdenes
+     * de la página para armar su desglose.
      *
      * @param from fecha mínima de creación de alguna cuenta de la orden, o null para sin límite
      * @param to fecha máxima de creación de alguna cuenta de la orden, o null para sin límite
      * @param estado filtro por el estado agregado de la orden, o null para no filtrar
      * @param metodo filtro por método de pago (de cualquier cuenta/pago no cancelado de la orden), o null
-     * @param pageable paginación solicitada (la página se arma en memoria, ver nota de arriba)
+     * @param pageable paginación solicitada
      * @param actor usuario que realiza la consulta; acota el resultado a su tienda
      */
     public Page<VentaResumen> searchVentas(LocalDateTime from, LocalDateTime to, CuentaEstado estado, PaymentMethod metodo,
@@ -130,24 +129,27 @@ public class CuentaService {
         LocalDateTime effectiveTo = to != null ? to : MAX_DATE;
         Long tiendaId = tenantScope.scopeId(actor);
 
-        List<Long> ordenIds = cuentaRepository.searchOrdenIds(tiendaId, effectiveFrom, effectiveTo, metodo);
-        if (ordenIds.isEmpty()) return new PageImpl<>(List.of(), pageable, 0);
+        String estadoTxt = estado != null ? estado.name() : null;
+        String metodoTxt = metodo != null ? metodo.name() : null;
+
+        long total = cuentaRepository.countVentas(tiendaId, effectiveFrom, effectiveTo, estadoTxt, metodoTxt);
+        if (total == 0) return new PageImpl<>(List.of(), pageable, 0);
+        List<Long> ordenIds = cuentaRepository.searchVentaIds(tiendaId, effectiveFrom, effectiveTo, estadoTxt, metodoTxt,
+                pageable.getPageSize(), pageable.getOffset());
+        if (ordenIds.isEmpty()) return new PageImpl<>(List.of(), pageable, total);
 
         Map<Long, List<Cuenta>> cuentasPorOrden = cuentaRepository.findByOrdenIdInOrderByCreatedAtAsc(ordenIds).stream()
                 .collect(Collectors.groupingBy(c -> c.getOrden().getId()));
 
+        // Mismo orden que devolvió la consulta (cuenta más reciente primero).
         List<VentaResumen> resumenes = ordenIds.stream()
+                .filter(cuentasPorOrden::containsKey)
                 .map(id -> buildResumen(id, cuentasPorOrden.get(id)))
-                .filter(r -> estado == null || r.getEstado() == estado)
-                .sorted(Comparator.comparing(VentaResumen::getFecha).reversed())
                 .toList();
-
-        int start = Math.min((int) pageable.getOffset(), resumenes.size());
-        int end = Math.min(start + pageable.getPageSize(), resumenes.size());
-        return new PageImpl<>(resumenes.subList(start, end), pageable, resumenes.size());
+        return new PageImpl<>(resumenes, pageable, total);
     }
 
-    /** Arma el resumen de una orden a partir de todas sus cuentas ya cargadas (nunca vacías: viene de {@code searchOrdenIds}). */
+    /** Arma el resumen de una orden a partir de todas sus cuentas ya cargadas (nunca vacías: viene de {@code searchVentaIds}). */
     private VentaResumen buildResumen(Long ordenId, List<Cuenta> cuentas) {
         Orden orden = cuentas.get(0).getOrden();
         BigDecimal total = cuentas.stream()

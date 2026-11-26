@@ -138,6 +138,21 @@ public class UserService {
         return userRepository.search(scope, effectiveFrom, effectiveTo, name, email, roleId, isActive, tiendaSupervisorId);
     }
 
+    /** Lo mismo que {@link #findAll}, por páginas (pantalla de Usuarios). */
+    public org.springframework.data.domain.Page<User> findPage(LocalDateTime from, LocalDateTime to, String name, String email,
+                                                              Long roleId, Boolean isActive,
+                                                              org.springframework.data.domain.Pageable pageable, User actor) {
+        LocalDateTime effectiveFrom = from != null ? from : MIN_DATE;
+        LocalDateTime effectiveTo = to != null ? to : MAX_DATE;
+        Long scope = tenantScope.isSuperAdmin(actor) && isPlatformRole(roleId) ? null : tenantScope.scopeId(actor);
+        Long tiendaSupervisorId = null;
+        if (scope != null && tenantScope.isSuperAdmin(actor) && (roleId == null || isRoleNamed(roleId, "SUPERVISOR"))) {
+            tiendaSupervisorId = tiendaRepository.findById(scope)
+                    .map(Tienda::getSupervisor).map(User::getId).orElse(null);
+        }
+        return userRepository.searchPage(scope, effectiveFrom, effectiveTo, name, email, roleId, isActive, tiendaSupervisorId, pageable);
+    }
+
     /** {@code true} si el id de rol dado corresponde a un rol de plataforma (sin tienda);
      *  {@code false} (nunca truena) si el id es null o no existe. */
     private boolean isPlatformRole(Long roleId) {
