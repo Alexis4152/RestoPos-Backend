@@ -29,6 +29,11 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
            "AND (:tiendaId IS NULL OR p.tienda.id = :tiendaId) ORDER BY p.name ASC")
     List<Product> findAllActive(@Param("tiendaId") Long tiendaId);
 
+    /** Favoritos activos de la tienda (zona "Favoritos" al tomar la orden), por nombre. */
+    @Query("SELECT p FROM Product p WHERE p.isActive = true AND p.favorito = true " +
+           "AND (:tiendaId IS NULL OR p.tienda.id = :tiendaId) ORDER BY p.name ASC")
+    List<Product> findFavoritos(@Param("tiendaId") Long tiendaId);
+
     /**
      * Búsqueda paginada de productos activos con filtros combinables.
      *

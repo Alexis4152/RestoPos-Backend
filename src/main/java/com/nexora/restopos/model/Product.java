@@ -72,6 +72,12 @@ public class Product {
     @Builder.Default
     private Boolean controlaInventario = false;
 
+    // Favorito de la tienda: aparece en la zona "Favoritos" al tomar la orden (para todos). Se marca
+    // con la estrella desde la toma de orden.
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    @Builder.Default
+    private Boolean favorito = false;
+
     /**
      * Lleva inventario y no le queda stock: no se puede vender (InventarioVentaService). En el
      * POS se muestra "Sin inventario"; en la página web, "No disponible". Calculado, no se guarda.

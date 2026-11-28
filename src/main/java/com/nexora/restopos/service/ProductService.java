@@ -73,6 +73,19 @@ public class ProductService {
         return productRepository.findAllActive(tenantScope.scopeId(actor));
     }
 
+    /** Favoritos de la tienda del actor (zona "Favoritos" al tomar la orden). */
+    public List<Product> favoritos(User actor) {
+        return productRepository.findFavoritos(tenantScope.scopeId(actor));
+    }
+
+    /** Marca o quita un platillo como favorito de la tienda (estrella al tomar la orden). */
+    @org.springframework.transaction.annotation.Transactional
+    public Product marcarFavorito(Long id, boolean favorito, User actor) {
+        Product p = findById(id, actor); // valida la tienda del actor
+        p.setFavorito(favorito);
+        return productRepository.save(p);
+    }
+
     /**
      * Busca un producto por nombre/código en las tiendas "hermanas" de la del actor — las
      * que comparten el mismo SUPERVISOR (ver {@link TiendaRepository#findSiblingTiendas}),

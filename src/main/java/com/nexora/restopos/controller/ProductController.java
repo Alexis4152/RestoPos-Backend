@@ -107,6 +107,26 @@ public class ProductController {
      * @param limit      cantidad máxima a devolver (por defecto 20)
      * @param actor      usuario autenticado; determina el filtro por tienda
      */
+    /** Favoritos de la tienda para la toma de orden; con {@code paraOrdenar}, solo los del menú de hoy. */
+    @GetMapping("/favoritos")
+    @PreAuthorize("@sectionAccess.checkAny('ORDERS', 'TAKEAWAY', 'MENU')")
+    public ResponseEntity<ApiResponse<List<Product>>> favoritos(@RequestParam(defaultValue = "false") boolean paraOrdenar,
+                                                                @AuthenticationPrincipal User actor) {
+        List<Product> todos = productService.favoritos(actor);
+        if (paraOrdenar) {
+            return ResponseEntity.ok(ApiResponse.ok(soloMenuHoy(n -> todos, todos.size(), actor), null));
+        }
+        return ResponseEntity.ok(ApiResponse.ok(todos, null));
+    }
+
+    /** Marca ({"favorito": true}) o quita un platillo de los favoritos de la tienda. */
+    @PatchMapping("/{id}/favorito")
+    @PreAuthorize("@sectionAccess.checkAny('ORDERS', 'TAKEAWAY', 'MENU')")
+    public ResponseEntity<ApiResponse<Product>> marcarFavorito(@PathVariable Long id, @RequestBody java.util.Map<String, Boolean> body,
+                                                               @AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(productService.marcarFavorito(id, Boolean.TRUE.equals(body.get("favorito")), actor), null));
+    }
+
     @GetMapping("/top-selling")
     @PreAuthorize("@sectionAccess.checkAny('ORDERS', 'MENU', 'DASHBOARD')")
     public ResponseEntity<ApiResponse<List<Product>>> topSelling(@RequestParam(required = false) Long categoryId,
