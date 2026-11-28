@@ -112,6 +112,8 @@ public class PublicSiteService {
     private PublicSiteDtos.Producto toDto(Product p) {
         List<PublicSiteDtos.Grupo> grupos = p.getModificadorGrupos().stream()
                 .filter(g -> Boolean.TRUE.equals(g.getIsActive()))
+                // Un grupo sin opciones (ej. Extras que se llenan al vender) no se muestra al cliente.
+                .filter(g -> g.getOpciones().stream().anyMatch(o -> Boolean.TRUE.equals(o.getIsActive())))
                 .sorted(Comparator.comparing((ModificadorGrupo g) -> g.getOrden() == null ? 0 : g.getOrden())
                         .thenComparing(ModificadorGrupo::getId))
                 .map(g -> new PublicSiteDtos.Grupo(g.getId(), g.getNombre(), g.getTipo().name(),
