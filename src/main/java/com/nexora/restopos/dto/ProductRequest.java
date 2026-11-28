@@ -48,8 +48,6 @@ public class ProductRequest {
     private Boolean disponible;
     // Si lleva inventario (Product.controlaInventario). null = false al crear; al editar, no cambia.
     private Boolean controlaInventario;
-    // Cobra consumo local (Product.aplicaConsumoLocal). null = false al crear; al editar, no cambia.
-    private Boolean aplicaConsumoLocal;
     // Sin esto, un categoryId nulo llega hasta CategoryService.findById(null, actor) y truena
     // con un error crudo en vez de un 400 legible.
     @NotNull(message = "Selecciona una categoría")

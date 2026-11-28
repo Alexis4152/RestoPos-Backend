@@ -973,13 +973,13 @@ public class OrdenService {
     }
 
     /**
-     * Consumo local por pieza para una línea: el monto de la tienda si se pidió, la tienda lo tiene
-     * activo y el platillo lo cobra; si no, 0.
+     * Consumo local por pieza para una línea del punto de venta: el monto de la tienda si se pidió y
+     * la tienda lo tiene activo; si no, 0. Los pedidos en línea nunca lo piden.
      */
     private static BigDecimal consumoLocalDe(Orden orden, Product producto, boolean pedido) {
         Tienda t = orden.getTienda();
         if (!pedido || producto == null || t == null || !Boolean.TRUE.equals(t.getConsumoLocalActivo())
-                || !Boolean.TRUE.equals(producto.getAplicaConsumoLocal()) || t.getConsumoLocalMonto() == null) {
+                || t.getConsumoLocalMonto() == null || "WEB".equals(orden.getOrigen())) {
             return BigDecimal.ZERO;
         }
         return t.getConsumoLocalMonto();

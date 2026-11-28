@@ -101,9 +101,9 @@ public class Tienda {
     @Builder.Default
     private Integer propinaMaxPorcentaje = 50;
 
-    // Consumo local: cargo por pieza a los platillos marcados (Product.aplicaConsumoLocal) cuando se
-    // consumen en el restaurante. Se elige al agregar el platillo; el cliente no ve la leyenda: va
-    // incluido en el precio del platillo. Lo configura el admin (o superior) en "Datos de la tienda".
+    // Consumo local: cargo por pieza que quien toma la orden en el punto de venta le pone a cada
+    // producto que se consume en el restaurante (nunca en pedidos en línea). El cliente no ve la
+    // leyenda: va incluido en el precio. Lo activa el admin (o superior) en "Datos de la tienda".
     @Column(nullable = false, columnDefinition = "boolean default false")
     @Builder.Default
     private Boolean consumoLocalActivo = false;

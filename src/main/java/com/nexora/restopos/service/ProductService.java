@@ -205,7 +205,6 @@ public class ProductService {
         p.setDisponible(req.getDisponible() == null || req.getDisponible());
         p.setControlaInventario(Boolean.TRUE.equals(req.getControlaInventario()));
         if (!p.getControlaInventario()) { p.setStock(0); p.setMinStock(0); }
-        p.setAplicaConsumoLocal(Boolean.TRUE.equals(req.getAplicaConsumoLocal()));
 
         p.setCategory(cat);
         p.setTienda(tienda);
@@ -253,7 +252,6 @@ public class ProductService {
         if (req.getDisponible() != null) p.setDisponible(req.getDisponible());
         // El stock no se toca al apagarlo: si lo vuelven a activar, conserva lo que tenía.
         if (req.getControlaInventario() != null) p.setControlaInventario(req.getControlaInventario());
-        if (req.getAplicaConsumoLocal() != null) p.setAplicaConsumoLocal(req.getAplicaConsumoLocal());
         p.setCategory(cat);
         p.setUpdatedBy(actor);
         return productRepository.save(p);
