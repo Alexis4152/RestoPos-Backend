@@ -28,13 +28,12 @@ public class ComandaTicketService {
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
         ctl(buf, 0x1B, 0x40);                 // ESC @ : inicializa
         ctl(buf, 0x1B, 0x61, 0x01);           // centro
-        ctl(buf, 0x1D, 0x21, 0x11);           // doble alto y ancho
+        // Mismo tamaño de letra que el ticket de venta (normal); los encabezados van en negritas.
+        ctl(buf, 0x1D, 0x21, 0x00);           // tamaño normal
+        ctl(buf, 0x1B, 0x45, 0x01);           // negritas
         text(buf, "COCINA".equals(comanda.getDestino()) ? "COCINA\n" : "ORDEN\n");
-        ctl(buf, 0x1D, 0x21, 0x01);           // doble alto
-        ctl(buf, 0x1B, 0x45, 0x01);
         text(buf, wrap(destinoOrden(orden)) + "\n");
         ctl(buf, 0x1B, 0x45, 0x00);
-        ctl(buf, 0x1D, 0x21, 0x00);           // tamaño normal
         text(buf, "Orden #" + orden.getId() + "\n");
         ctl(buf, 0x1B, 0x61, 0x00);           // izquierda
         String hora = comanda.getCreatedAt() != null ? HORA.format(comanda.getCreatedAt()) : "";
@@ -42,11 +41,9 @@ public class ComandaTicketService {
         text(buf, "-".repeat(WIDTH) + "\n");
 
         for (OrdenDetalle d : lineas) {
-            ctl(buf, 0x1D, 0x21, 0x01);       // doble alto: cantidad y platillo
-            ctl(buf, 0x1B, 0x45, 0x01);
+            ctl(buf, 0x1B, 0x45, 0x01);       // cantidad y platillo en negritas
             for (String l : partir(cantidad(d.getCantidad()) + " x " + d.getProductoNombre())) text(buf, l + "\n");
             ctl(buf, 0x1B, 0x45, 0x00);
-            ctl(buf, 0x1D, 0x21, 0x00);
             if (d.getModificadores() != null) {
                 // Cocina ve el extra por su nombre ("Cebolla x3", "Aguacate"), sin marcar si es libre.
                 for (com.nexora.restopos.util.ModsAgrupados.Mod m : com.nexora.restopos.util.ModsAgrupados.agrupar(d.getModificadores())) {
