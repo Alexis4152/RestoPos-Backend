@@ -46,6 +46,16 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         if (token != null && jwtTokenProvider.validateToken(token)) {
             String email = jwtTokenProvider.getEmailFromToken(token);
             UserDetails userDetails = userDetailsService.loadUserByUsername(email);
+            // Tienda desactivada: se corta la sesión aunque el token siga vigente.
+            if (userDetails instanceof com.nexora.restopos.model.User u && u.getTienda() != null
+                    && !Boolean.TRUE.equals(u.getTienda().getIsActive())) {
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                response.setContentType("application/json;charset=UTF-8");
+                response.getWriter().write("{\"success\":false,\"message\":\""
+                        + com.nexora.restopos.exception.TiendaInactivaException.MENSAJE + "\",\"data\":\""
+                        + com.nexora.restopos.exception.TiendaInactivaException.CODIGO + "\"}");
+                return;
+            }
 
             UsernamePasswordAuthenticationToken auth =
                     new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());

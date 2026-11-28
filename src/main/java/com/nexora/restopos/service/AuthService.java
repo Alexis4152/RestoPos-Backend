@@ -88,6 +88,7 @@ public class AuthService {
                 new UsernamePasswordAuthenticationToken(req.getEmail(), req.getPassword())
         );
         User user = (User) auth.getPrincipal();
+        verificarTiendaActiva(user);
         String accessToken = jwtTokenProvider.generateAccessToken(user);
         String refreshToken = issueRefreshToken(user);
         LoginResponse body = LoginResponse.builder()
@@ -127,7 +128,15 @@ public class AuthService {
         if (Boolean.TRUE.equals(refreshToken.getRevoked()) || refreshToken.getExpiresAt().isBefore(LocalDateTime.now())) {
             throw new InvalidRefreshTokenException("Sesión expirada, vuelve a iniciar sesión");
         }
+        verificarTiendaActiva(refreshToken.getUser());
         return jwtTokenProvider.generateAccessToken(refreshToken.getUser());
+    }
+
+    /** Un usuario de una tienda desactivada no entra (super admin y supervisores no tienen tienda). */
+    private static void verificarTiendaActiva(User user) {
+        if (user.getTienda() != null && !Boolean.TRUE.equals(user.getTienda().getIsActive())) {
+            throw new com.nexora.restopos.exception.TiendaInactivaException();
+        }
     }
 
     /**

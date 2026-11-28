@@ -84,6 +84,13 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(ApiResponse.error("El archivo no debe pesar más de 3 MB"));
     }
 
+    /** Usuario de una tienda desactivada: el frontend cierra la sesión y muestra el mensaje. */
+    @ExceptionHandler(TiendaInactivaException.class)
+    public ResponseEntity<java.util.Map<String, Object>> handleTiendaInactiva(TiendaInactivaException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of(
+                "success", false, "message", TiendaInactivaException.MENSAJE, "data", TiendaInactivaException.CODIGO));
+    }
+
     @ExceptionHandler(BadCredentialsException.class)
     public ResponseEntity<ApiResponse<Void>> handleBadCreds(BadCredentialsException ex) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error("Credenciales inválidas"));

@@ -196,6 +196,16 @@ public class TiendaService {
      * @param id id de la tienda a desactivar
      * @param actor usuario que la desactiva
      */
+    /** Reactiva una tienda desactivada: sus usuarios vuelven a entrar. Solo SUPER_ADMIN (controller). */
+    public Tienda activate(Long id, User actor) {
+        Tienda t = findById(id);
+        t.setIsActive(true);
+        t.setDeletedBy(null);
+        t.setDeletedAt(null);
+        t.setUpdatedBy(actor);
+        return tiendaRepository.save(t);
+    }
+
     public void deactivate(Long id, User actor) {
         Tienda t = findById(id);
         if (!tenantScope.canManageTienda(actor, id)) {

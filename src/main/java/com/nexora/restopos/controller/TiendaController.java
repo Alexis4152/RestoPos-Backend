@@ -43,6 +43,8 @@ public class TiendaController {
     private final TiendaService tiendaService;
     private final TiendaInfoService tiendaInfoService;
     private final TiendaLogoService tiendaLogoService;
+    private final com.nexora.restopos.service.TiendaPurgeService tiendaPurgeService;
+    private final com.nexora.restopos.service.AuditoriaService auditoriaService;
 
     /**
      * Lista las tiendas visibles para el actor: todas si es SUPER_ADMIN (o solo las de un
@@ -140,6 +142,34 @@ public class TiendaController {
             @AuthenticationPrincipal User actor) {
         return ResponseEntity.ok(ApiResponse.ok(
                 tiendaService.updateEnviarACocina(id, body.get("enviarACocina"), actor), "Envío a cocina guardado"));
+    }
+
+    /** Reactiva una tienda desactivada (sus usuarios vuelven a entrar). Solo SUPER_ADMIN. */
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PutMapping("/{id}/activar")
+    public ResponseEntity<ApiResponse<Tienda>> activar(@PathVariable Long id, @AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(tiendaService.activate(id, actor), "Tienda activada"));
+    }
+
+    /**
+     * Elimina DEFINITIVAMENTE una tienda y todo lo suyo (usuarios, ventas, cortes, platillos...).
+     * Solo SUPER_ADMIN, solo si ya está desactivada y escribiendo su nombre exacto en {"confirmacion"}.
+     */
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PostMapping("/{id}/eliminar-definitivo")
+    public ResponseEntity<ApiResponse<java.util.Map<String, Integer>>> eliminarDefinitivo(
+            @PathVariable Long id, @RequestBody java.util.Map<String, String> body, @AuthenticationPrincipal User actor) {
+        Tienda t = tiendaService.findById(id);
+        if (Boolean.TRUE.equals(t.getIsActive())) {
+            throw new IllegalStateException("Primero desactiva la tienda");
+        }
+        String confirmacion = body.get("confirmacion") == null ? "" : body.get("confirmacion").trim();
+        if (!confirmacion.equals(t.getName().trim())) {
+            throw new IllegalArgumentException("Escribe el nombre exacto de la tienda para confirmar");
+        }
+        java.util.Map<String, Integer> borrado = tiendaPurgeService.purgar(id);
+        auditoriaService.log(actor, "ELIMINAR_TIENDA", "Tienda", id, t.getName(), borrado.toString(), "Eliminación definitiva");
+        return ResponseEntity.ok(ApiResponse.ok(borrado, "Tienda eliminada definitivamente"));
     }
 
     /** Seguimiento del repartidor en los pedidos a domicilio del punto de venta. Solo SUPER_ADMIN. */
