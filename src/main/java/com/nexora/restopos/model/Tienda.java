@@ -101,6 +101,17 @@ public class Tienda {
     @Builder.Default
     private Integer propinaMaxPorcentaje = 50;
 
+    // Consumo local: cargo por pieza a los platillos marcados (Product.aplicaConsumoLocal) cuando se
+    // consumen en el restaurante. Se elige al agregar el platillo; el cliente no ve la leyenda: va
+    // incluido en el precio del platillo. Lo configura el admin (o superior) en "Datos de la tienda".
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    @Builder.Default
+    private Boolean consumoLocalActivo = false;
+
+    @Column(nullable = false, precision = 12, scale = 2, columnDefinition = "numeric(12,2) default 10")
+    @Builder.Default
+    private java.math.BigDecimal consumoLocalMonto = new java.math.BigDecimal("10.00");
+
     // Quién imprime la cuenta por pagar (las 2 copias cliente/comercio): CAJERO (quien cobra,
     // con la sección Cortes de caja), MESERO (quien no cobra) o AMBOS. ADMIN, SUPERVISOR y
     // SUPER_ADMIN siempre pueden. Solo lo cambia el SUPER_ADMIN (ver ImpresionCuentaPolicy).

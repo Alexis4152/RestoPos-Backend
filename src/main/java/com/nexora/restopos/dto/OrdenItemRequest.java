@@ -22,4 +22,6 @@ public class OrdenItemRequest {
     // ids de ModificadorOpcion elegidas (de cualquier grupo del producto), opcional — ver
     // OrdenService#agregarItem, que valida ahí las reglas de único/obligatorio.
     private List<Long> modificadorOpcionIds;
+    // Se consume en el restaurante: cobra el consumo local si el platillo y la tienda lo tienen.
+    private Boolean consumoLocal;
 }

@@ -63,4 +63,10 @@ public class TiendaInfoRequest {
     @Min(value = 1, message = "El tope de propina debe ser de al menos 1%")
     @Max(value = 100, message = "El tope de propina no puede pasar del 100%")
     private Integer propinaMaxPorcentaje;
+
+    // Consumo local (Tienda.consumoLocalActivo / consumoLocalMonto). null = no se cambia.
+    private Boolean consumoLocalActivo;
+    @jakarta.validation.constraints.DecimalMin(value = "0", message = "El consumo local no puede ser negativo")
+    @jakarta.validation.constraints.DecimalMax(value = "9999", message = "El consumo local es demasiado alto")
+    private java.math.BigDecimal consumoLocalMonto;
 }

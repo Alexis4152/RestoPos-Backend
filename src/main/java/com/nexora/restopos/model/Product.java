@@ -72,6 +72,12 @@ public class Product {
     @Builder.Default
     private Boolean controlaInventario = false;
 
+    // Este platillo cobra consumo local (Tienda.consumoLocalMonto por pieza) cuando se consume en el
+    // restaurante y la tienda lo tiene activo.
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    @Builder.Default
+    private Boolean aplicaConsumoLocal = false;
+
     /**
      * Lleva inventario y no le queda stock: no se puede vender (InventarioVentaService). En el
      * POS se muestra "Sin inventario"; en la página web, "No disponible". Calculado, no se guarda.

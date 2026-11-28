@@ -257,7 +257,7 @@ public class OrdenService {
                 throw new IllegalArgumentException("\"" + producto.getName() + "\" no está disponible en este momento");
             }
             String obs = it.getObservaciones() != null && !it.getObservaciones().isBlank() ? it.getObservaciones().trim() : null;
-            crearLinea(saved, producto, null, BigDecimal.valueOf(it.getCantidad()), BigDecimal.ZERO, obs, it.getModificadorOpcionIds(), null);
+            crearLinea(saved, producto, null, BigDecimal.valueOf(it.getCantidad()), BigDecimal.ZERO, obs, it.getModificadorOpcionIds(), false, null);
         }
 
         if (domicilio) {
@@ -317,7 +317,7 @@ public class OrdenService {
                 throw new IllegalArgumentException("\"" + producto.getName() + "\" no está disponible");
             }
             String obs = it.getObservaciones() != null && !it.getObservaciones().isBlank() ? it.getObservaciones().trim() : null;
-            crearLinea(orden, producto, null, BigDecimal.valueOf(it.getCantidad()), BigDecimal.ZERO, obs, it.getModificadorOpcionIds(), null);
+            crearLinea(orden, producto, null, BigDecimal.valueOf(it.getCantidad()), BigDecimal.ZERO, obs, it.getModificadorOpcionIds(), false, null);
         }
         recomputeTotals(orden);
         return ordenRepository.save(orden);
@@ -908,7 +908,7 @@ public class OrdenService {
         }
 
         OrdenDetalle saved = crearLinea(orden, producto, comensal, req.getCantidad(), descuento,
-                req.getObservaciones(), req.getModificadorOpcionIds(), actor);
+                req.getObservaciones(), req.getModificadorOpcionIds(), Boolean.TRUE.equals(req.getConsumoLocal()), actor);
         if (descuento.signum() > 0) {
             auditoriaService.log(actor, "DESCUENTO_ITEM", "OrdenDetalle", saved.getId(), null, descuento, saved.getProductoNombre());
         }
@@ -926,11 +926,14 @@ public class OrdenService {
      * ({@link #crearPedidoWeb}).
      */
     private OrdenDetalle crearLinea(Orden orden, Product producto, Comensal comensal, BigDecimal cantidad,
-                                    BigDecimal descuento, String observaciones, List<Long> modificadorOpcionIds, User actor) {
+                                    BigDecimal descuento, String observaciones, List<Long> modificadorOpcionIds,
+                                    boolean consumoLocal, User actor) {
         List<ModificadorOpcion> opcionesElegidas = resolverModificadoresElegidos(producto, modificadorOpcionIds);
+        BigDecimal cargoLocal = consumoLocalDe(orden, producto, consumoLocal);
         BigDecimal extrasUnitario = opcionesElegidas.stream()
                 .map(ModificadorOpcion::getPrecioExtra)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .add(cargoLocal);
 
         // El subtotal SÍ incluye los extras (es lo que de verdad se cobra); precioUnitario se
         // deja en el precio base del producto para que el ticket pueda desglosar cada extra por
@@ -950,6 +953,7 @@ public class OrdenService {
         item.setPrecioUnitario(producto.getPrice());
         item.setDescuento(descuento);
         item.setSubtotal(subtotal);
+        item.setConsumoLocal(cargoLocal);
         item.setObservaciones(observaciones);
         OrdenDetalle saved = ordenDetalleRepository.save(item);
 
@@ -966,6 +970,19 @@ public class OrdenService {
         inventarioVentaService.descontar(saved, cantidad, actor);
         orden.getItems().add(saved);
         return saved;
+    }
+
+    /**
+     * Consumo local por pieza para una línea: el monto de la tienda si se pidió, la tienda lo tiene
+     * activo y el platillo lo cobra; si no, 0.
+     */
+    private static BigDecimal consumoLocalDe(Orden orden, Product producto, boolean pedido) {
+        Tienda t = orden.getTienda();
+        if (!pedido || producto == null || t == null || !Boolean.TRUE.equals(t.getConsumoLocalActivo())
+                || !Boolean.TRUE.equals(producto.getAplicaConsumoLocal()) || t.getConsumoLocalMonto() == null) {
+            return BigDecimal.ZERO;
+        }
+        return t.getConsumoLocalMonto();
     }
 
     /**
@@ -1065,6 +1082,11 @@ public class OrdenService {
         boolean subeCantidad = req.getCantidad().compareTo(item.getCantidad()) > 0;
         boolean cambiaOpciones = req.getModificadorOpcionIds() != null;
         boolean cambiaMods = cambiaOpciones;
+        boolean teniaLocal = item.getConsumoLocal() != null && item.getConsumoLocal().signum() > 0;
+        boolean cambiaLocal = req.getConsumoLocal() != null && req.getConsumoLocal() != teniaLocal;
+        if (cambiaLocal && item.getCantidadFacturada().signum() > 0) {
+            throw new IllegalStateException("No se puede cambiar el consumo local: el producto ya se incluyó en una cuenta");
+        }
 
         if (subeCantidad || cambiaMods) ensureNoSalioAEntregar(orden);
         boolean yaEntregado = item.getEstado() == OrdenDetalleEstado.ENTREGADO_MESERO
@@ -1109,7 +1131,9 @@ public class OrdenService {
         item.setCantidad(req.getCantidad());
         item.setObservaciones(nuevasObs);
         // Al bajar la cantidad, el descuento nunca puede dejar la línea en negativo.
-        BigDecimal importe = item.getPrecioUnitario().add(extrasUnitario).multiply(req.getCantidad());
+        if (cambiaLocal) item.setConsumoLocal(consumoLocalDe(orden, item.getProducto(), req.getConsumoLocal()));
+        BigDecimal local = item.getConsumoLocal() != null ? item.getConsumoLocal() : BigDecimal.ZERO;
+        BigDecimal importe = item.getPrecioUnitario().add(extrasUnitario).add(local).multiply(req.getCantidad());
         item.setDescuento(item.getDescuento().min(importe));
         item.setSubtotal(importe.subtract(item.getDescuento()));
         OrdenDetalle saved = ordenDetalleRepository.save(item);
@@ -1127,6 +1151,7 @@ public class OrdenService {
                 .map(m -> m.grupoNombre() + " " + m.nombreConCantidad())
                 .collect(Collectors.joining(", "));
         return item.getCantidad().stripTrailingZeros().toPlainString() + "x " + item.getProductoNombre()
+                + (item.getConsumoLocal() != null && item.getConsumoLocal().signum() > 0 ? " · consumo local" : "")
                 + (item.getComensal() != null ? " · comensal " + item.getComensal().getNumero() : " · compartido")
                 + (mods.isEmpty() ? "" : " · " + mods)
                 + (item.getObservaciones() != null ? " · nota: " + item.getObservaciones() : "");

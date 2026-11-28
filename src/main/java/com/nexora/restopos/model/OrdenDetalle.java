@@ -86,6 +86,12 @@ public class OrdenDetalle {
     @Builder.Default
     private Boolean cargoExtra = false;
 
+    // Consumo local cobrado POR PIEZA en esta línea (0 = no). Ya va incluido en el subtotal; el
+    // ticket del cliente no lo desglosa (sale dentro del precio del platillo).
+    @Column(name = "consumo_local", nullable = false, precision = 12, scale = 2, columnDefinition = "numeric(12,2) default 0")
+    @Builder.Default
+    private BigDecimal consumoLocal = BigDecimal.ZERO;
+
     // Cuándo salió de cocina (primera vez que pasó a ENTREGADO_MESERO o ENTREGADO). Lo usa la
     // vista "Ya entregados" de Cocina para mostrar solo lo de hoy (ver OrdenService#findEntregadosHoy).
     private LocalDateTime entregadoCocinaAt;

@@ -20,6 +20,8 @@ public class OrdenItemUpdateRequest {
     private String observaciones;
     // null = conservar los modificadores actuales; lista (aunque sea vacía) = reemplazarlos.
     private List<Long> modificadorOpcionIds;
+    // null = no cambia; true/false = cobrar o quitar el consumo local de la línea.
+    private Boolean consumoLocal;
     // Opcional: por qué se editó (ej. "el cliente regresó uno") — solo va a la auditoría.
     private String motivo;
 }

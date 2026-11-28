@@ -86,6 +86,10 @@ public class TiendaInfoService {
         if (req.getPropinaMaxPorcentaje() != null) {
             tienda.setPropinaMaxPorcentaje(req.getPropinaMaxPorcentaje());
         }
+        if (req.getConsumoLocalActivo() != null) tienda.setConsumoLocalActivo(req.getConsumoLocalActivo());
+        if (req.getConsumoLocalMonto() != null) {
+            tienda.setConsumoLocalMonto(req.getConsumoLocalMonto().setScale(2, java.math.RoundingMode.HALF_UP));
+        }
         tienda.setUpdatedBy(actor);
         tiendaRepository.save(tienda);
 
