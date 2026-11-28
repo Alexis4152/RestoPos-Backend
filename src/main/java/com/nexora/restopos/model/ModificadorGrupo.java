@@ -61,6 +61,15 @@ public class ModificadorGrupo {
     @Builder.Default
     private Boolean permiteRepetir = false;
 
+    /**
+     * Grupo de Extras: al tomar la orden, quien tiene acceso puede cambiar el precio de una opción
+     * o agregar una nueva (nombre y precio); ambos se guardan en este grupo del platillo, sin
+     * confirmación. Las órdenes ya pedidas conservan su precio (OrdenDetalleModificador).
+     */
+    @Column(name = "es_extras", nullable = false, columnDefinition = "boolean default false")
+    @Builder.Default
+    private Boolean esExtras = false;
+
     @Column(nullable = false)
     @Builder.Default
     private Integer orden = 0;

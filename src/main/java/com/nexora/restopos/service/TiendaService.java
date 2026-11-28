@@ -241,15 +241,6 @@ public class TiendaService {
         return tiendaRepository.save(t);
     }
 
-    /** Activa o desactiva los extras libres en la tienda. Solo SUPER_ADMIN (lo restringe el controller). */
-    public Tienda updateExtraLibre(Long id, Boolean extraLibre, User actor) {
-        if (extraLibre == null) throw new IllegalArgumentException("Indica si se permiten extras libres");
-        Tienda t = findById(id);
-        t.setExtraLibre(extraLibre);
-        t.setUpdatedBy(actor);
-        return tiendaRepository.save(t);
-    }
-
     public Tienda updateEnviarACocina(Long id, Boolean enviarACocina, User actor) {
         if (enviarACocina == null) throw new IllegalArgumentException("Indica si se envía a cocina");
         Tienda t = findById(id);

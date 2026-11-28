@@ -32,6 +32,9 @@ public class ModificadorGrupoRequest {
     /** Solo para MULTIPLE: la misma opción se puede elegir varias veces; null = no. */
     private Boolean permiteRepetir;
 
+    /** Grupo de Extras: precio editable y extras nuevos desde la toma de orden; null = no. */
+    private Boolean esExtras;
+
     @NotEmpty(message = "Agrega al menos una opción")
     @Valid
     private List<ModificadorOpcionRequest> opciones;

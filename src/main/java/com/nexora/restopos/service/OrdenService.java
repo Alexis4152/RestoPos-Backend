@@ -257,7 +257,7 @@ public class OrdenService {
                 throw new IllegalArgumentException("\"" + producto.getName() + "\" no está disponible en este momento");
             }
             String obs = it.getObservaciones() != null && !it.getObservaciones().isBlank() ? it.getObservaciones().trim() : null;
-            crearLinea(saved, producto, null, BigDecimal.valueOf(it.getCantidad()), BigDecimal.ZERO, obs, it.getModificadorOpcionIds(), null, null);
+            crearLinea(saved, producto, null, BigDecimal.valueOf(it.getCantidad()), BigDecimal.ZERO, obs, it.getModificadorOpcionIds(), null);
         }
 
         if (domicilio) {
@@ -317,7 +317,7 @@ public class OrdenService {
                 throw new IllegalArgumentException("\"" + producto.getName() + "\" no está disponible");
             }
             String obs = it.getObservaciones() != null && !it.getObservaciones().isBlank() ? it.getObservaciones().trim() : null;
-            crearLinea(orden, producto, null, BigDecimal.valueOf(it.getCantidad()), BigDecimal.ZERO, obs, it.getModificadorOpcionIds(), null, null);
+            crearLinea(orden, producto, null, BigDecimal.valueOf(it.getCantidad()), BigDecimal.ZERO, obs, it.getModificadorOpcionIds(), null);
         }
         recomputeTotals(orden);
         return ordenRepository.save(orden);
@@ -908,7 +908,7 @@ public class OrdenService {
         }
 
         OrdenDetalle saved = crearLinea(orden, producto, comensal, req.getCantidad(), descuento,
-                req.getObservaciones(), req.getModificadorOpcionIds(), req.getExtrasLibres(), actor);
+                req.getObservaciones(), req.getModificadorOpcionIds(), actor);
         if (descuento.signum() > 0) {
             auditoriaService.log(actor, "DESCUENTO_ITEM", "OrdenDetalle", saved.getId(), null, descuento, saved.getProductoNombre());
         }
@@ -926,14 +926,11 @@ public class OrdenService {
      * ({@link #crearPedidoWeb}).
      */
     private OrdenDetalle crearLinea(Orden orden, Product producto, Comensal comensal, BigDecimal cantidad,
-                                    BigDecimal descuento, String observaciones, List<Long> modificadorOpcionIds,
-                                    List<com.nexora.restopos.dto.ExtraLibreRequest> extrasLibres, User actor) {
+                                    BigDecimal descuento, String observaciones, List<Long> modificadorOpcionIds, User actor) {
         List<ModificadorOpcion> opcionesElegidas = resolverModificadoresElegidos(producto, modificadorOpcionIds);
-        List<OrdenDetalleModificador> libres = filasLibres(orden, extrasLibres);
         BigDecimal extrasUnitario = opcionesElegidas.stream()
                 .map(ModificadorOpcion::getPrecioExtra)
-                .reduce(BigDecimal.ZERO, BigDecimal::add)
-                .add(libres.stream().map(OrdenDetalleModificador::getPrecioExtra).reduce(BigDecimal.ZERO, BigDecimal::add));
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         // El subtotal SÍ incluye los extras (es lo que de verdad se cobra); precioUnitario se
         // deja en el precio base del producto para que el ticket pueda desglosar cada extra por
@@ -964,14 +961,6 @@ public class OrdenService {
             m.setPrecioExtra(opcion.getPrecioExtra());
             ordenDetalleModificadorRepository.save(m);
             saved.getModificadores().add(m);
-        }
-        for (OrdenDetalleModificador m : libres) {
-            m.setOrdenDetalle(saved);
-            ordenDetalleModificadorRepository.save(m);
-            saved.getModificadores().add(m);
-        }
-        if (!libres.isEmpty() && actor != null) {
-            auditoriaService.log(actor, "EXTRA_LIBRE", "OrdenDetalle", saved.getId(), null, describirLibres(libres), saved.getProductoNombre());
         }
         // Productos con "Lleva inventario": se descuenta lo vendido (y se agota si llega a 0).
         inventarioVentaService.descontar(saved, cantidad, actor);
@@ -1032,43 +1021,6 @@ public class OrdenService {
         return elegidas;
     }
 
-    /** Nombre del grupo con el que se guardan los extras libres (así salen en la cuenta y el ticket). */
-    private static final String GRUPO_EXTRA_LIBRE = "Extra";
-
-    /**
-     * Filas (sin guardar) de los extras libres de una línea: una por pieza, marcadas {@code libre}.
-     * Solo si la tienda los tiene activados; una lista vacía no exige nada (sirve para quitarlos).
-     */
-    private List<OrdenDetalleModificador> filasLibres(Orden orden, List<com.nexora.restopos.dto.ExtraLibreRequest> extras) {
-        if (extras == null || extras.isEmpty()) return List.of();
-        if (orden.getTienda() == null || !Boolean.TRUE.equals(orden.getTienda().getExtraLibre())) {
-            throw new IllegalStateException("Los extras libres no están activados en esta tienda");
-        }
-        List<OrdenDetalleModificador> filas = new java.util.ArrayList<>();
-        for (com.nexora.restopos.dto.ExtraLibreRequest e : extras) {
-            String nombre = e.getNombre() != null ? e.getNombre().trim() : "";
-            if (nombre.isEmpty()) throw new IllegalArgumentException("Escribe qué es el extra");
-            BigDecimal precio = e.getPrecio().setScale(2, java.math.RoundingMode.HALF_UP);
-            int cantidad = e.getCantidad() != null ? e.getCantidad() : 1;
-            for (int i = 0; i < cantidad; i++) {
-                OrdenDetalleModificador m = new OrdenDetalleModificador();
-                m.setGrupoNombre(GRUPO_EXTRA_LIBRE);
-                m.setNombre(nombre);
-                m.setPrecioExtra(precio);
-                m.setLibre(true);
-                filas.add(m);
-            }
-        }
-        return filas;
-    }
-
-    /** "Aguacate x1 $12.00, Queso extra x2 $10.00" para la auditoría. */
-    private static String describirLibres(List<OrdenDetalleModificador> libres) {
-        return com.nexora.restopos.util.ModsAgrupados.agrupar(libres).stream()
-                .map(m -> m.nombre() + " x" + m.cantidad() + " $" + m.precioExtra().toPlainString())
-                .collect(Collectors.joining(", "));
-    }
-
     /**
      * Edita una línea ya agregada: comensal, cantidad, notas y modificadores (el producto no —
      * para eso se cancela y se agrega otro). Reglas:
@@ -1112,8 +1064,7 @@ public class OrdenService {
         boolean cambiaObs = !java.util.Objects.equals(nuevasObs, item.getObservaciones());
         boolean subeCantidad = req.getCantidad().compareTo(item.getCantidad()) > 0;
         boolean cambiaOpciones = req.getModificadorOpcionIds() != null;
-        boolean cambiaLibres = req.getExtrasLibres() != null;
-        boolean cambiaMods = cambiaOpciones || cambiaLibres;
+        boolean cambiaMods = cambiaOpciones;
 
         if (subeCantidad || cambiaMods) ensureNoSalioAEntregar(orden);
         boolean yaEntregado = item.getEstado() == OrdenDetalleEstado.ENTREGADO_MESERO
@@ -1143,17 +1094,6 @@ public class OrdenService {
                 m.setNombre(opcion.getNombre());
                 m.setPrecioExtra(opcion.getPrecioExtra());
                 item.getModificadores().add(m);
-            }
-        }
-        if (cambiaLibres) {
-            List<OrdenDetalleModificador> libres = filasLibres(orden, req.getExtrasLibres());
-            item.getModificadores().removeIf(m -> Boolean.TRUE.equals(m.getLibre()));
-            for (OrdenDetalleModificador m : libres) {
-                m.setOrdenDetalle(item);
-                item.getModificadores().add(m);
-            }
-            if (!libres.isEmpty()) {
-                auditoriaService.log(actor, "EXTRA_LIBRE", "OrdenDetalle", item.getId(), null, describirLibres(libres), item.getProductoNombre());
             }
         }
         extrasUnitario = item.getModificadores().stream()

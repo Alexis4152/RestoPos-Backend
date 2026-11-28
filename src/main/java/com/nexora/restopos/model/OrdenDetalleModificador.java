@@ -39,8 +39,8 @@ public class OrdenDetalleModificador {
     @Builder.Default
     private BigDecimal precioExtra = BigDecimal.ZERO;
 
-    // Extra libre: no viene del menú; nombre y precio los escribió quien tomó la orden (ver
-    // ExtraLibreRequest). Una opción repetida (Cebolla x3) se guarda como una fila por pieza.
+    // Extra libre (función retirada): filas viejas con nombre y precio escritos a mano. Se conserva
+    // para mostrarlas. Una opción repetida (Cebolla x3) se guarda como una fila por pieza.
     @Column(nullable = false, columnDefinition = "boolean default false")
     @Builder.Default
     private Boolean libre = false;

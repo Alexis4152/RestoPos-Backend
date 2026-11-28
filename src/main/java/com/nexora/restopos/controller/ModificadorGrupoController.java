@@ -69,6 +69,24 @@ public class ModificadorGrupoController {
         return ResponseEntity.ok(ApiResponse.ok(modificadorGrupoService.update(id, req, actor), "Grupo actualizado"));
     }
 
+    /** Grupo de Extras: cambiar el precio de un extra desde la toma de orden (se guarda en el platillo). */
+    @PatchMapping("/api/modificador-opciones/{id}/precio")
+    @PreAuthorize("@sectionAccess.checkAny('MENU', 'ORDERS', 'TAKEAWAY')")
+    public ResponseEntity<ApiResponse<com.nexora.restopos.model.ModificadorOpcion>> cambiarPrecioExtra(
+            @PathVariable Long id, @Valid @RequestBody com.nexora.restopos.dto.ExtrasVentaDtos.Precio req,
+            @AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(modificadorGrupoService.cambiarPrecioExtra(id, req, actor), "Precio guardado"));
+    }
+
+    /** Grupo de Extras: agregar un extra nuevo (nombre y precio) desde la toma de orden. */
+    @PostMapping("/api/modificador-grupos/{id}/extras")
+    @PreAuthorize("@sectionAccess.checkAny('MENU', 'ORDERS', 'TAKEAWAY')")
+    public ResponseEntity<ApiResponse<com.nexora.restopos.model.ModificadorOpcion>> agregarExtra(
+            @PathVariable Long id, @Valid @RequestBody com.nexora.restopos.dto.ExtrasVentaDtos.Nuevo req,
+            @AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(modificadorGrupoService.agregarExtra(id, req, actor), "Extra agregado"));
+    }
+
     @DeleteMapping("/api/modificador-grupos/{id}")
     @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'SUPERVISOR')")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long id, @AuthenticationPrincipal User actor) {

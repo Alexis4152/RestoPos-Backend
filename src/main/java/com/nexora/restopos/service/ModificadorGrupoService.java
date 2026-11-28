@@ -1,5 +1,6 @@
 package com.nexora.restopos.service;
 
+import com.nexora.restopos.dto.ExtrasVentaDtos;
 import com.nexora.restopos.dto.ModificadorGrupoCopiableView;
 import com.nexora.restopos.dto.ModificadorGrupoRequest;
 import com.nexora.restopos.dto.ModificadorOpcionRequest;
@@ -34,6 +35,7 @@ public class ModificadorGrupoService {
     private final ModificadorGrupoRepository modificadorGrupoRepository;
     private final ModificadorOpcionRepository modificadorOpcionRepository;
     private final ProductService productService;
+    private final AuditoriaService auditoriaService;
 
     public List<ModificadorGrupo> findAllByProducto(Long productoId, User actor) {
         productService.findById(productoId, actor);
@@ -61,6 +63,7 @@ public class ModificadorGrupoService {
                         .obligatorio(g.getObligatorio())
                         .maxSelecciones(g.getMaxSelecciones())
                         .permiteRepetir(g.getPermiteRepetir())
+                        .esExtras(g.getEsExtras())
                         .productoNombre(g.getProducto().getName())
                         .opciones(g.getOpciones().stream().filter(o -> Boolean.TRUE.equals(o.getIsActive())).toList())
                         .build())
@@ -68,17 +71,12 @@ public class ModificadorGrupoService {
     }
 
     /**
-     * Máximo de opciones del grupo: solo aplica a MULTIPLE (en UNICO ya es 1) y no puede pedir
-     * más opciones de las que hay; null = sin límite.
+     * Máximo de opciones del grupo: solo aplica a MULTIPLE (en UNICO ya es 1); null = sin límite.
+     * Puede ser mayor que el número de opciones: sin repetir, eso equivale a poder marcarlas todas;
+     * repitiendo, cuenta piezas (ver {@code permiteRepetir}).
      */
     private static Integer maxSelecciones(ModificadorGrupoRequest req) {
-        if (req.getTipo() != com.nexora.restopos.model.ModificadorGrupoTipo.MULTIPLE || req.getMaxSelecciones() == null) return null;
-        // Si se pueden repetir, el máximo cuenta piezas: puede pasar del número de opciones.
-        if (permiteRepetir(req)) return req.getMaxSelecciones();
-        int opciones = req.getOpciones() != null ? req.getOpciones().size() : 0;
-        if (req.getMaxSelecciones() > opciones) {
-            throw new IllegalArgumentException("El máximo (" + req.getMaxSelecciones() + ") no puede ser mayor que las opciones del grupo (" + opciones + ")");
-        }
+        if (req.getTipo() != com.nexora.restopos.model.ModificadorGrupoTipo.MULTIPLE) return null;
         return req.getMaxSelecciones();
     }
 
@@ -107,6 +105,7 @@ public class ModificadorGrupoService {
         grupo.setObligatorio(Boolean.TRUE.equals(req.getObligatorio()));
         grupo.setMaxSelecciones(maxSelecciones(req));
         grupo.setPermiteRepetir(permiteRepetir(req));
+        grupo.setEsExtras(Boolean.TRUE.equals(req.getEsExtras()));
         // Los grupos nuevos van al final de los que ya tiene el platillo.
         grupo.setOrden(modificadorGrupoRepository.findAllByProductoIdAndIsActiveTrueOrderByOrdenAscIdAsc(productoId).stream()
                 .mapToInt(g -> g.getOrden() == null ? 0 : g.getOrden()).max().orElse(-1) + 1);
@@ -142,6 +141,7 @@ public class ModificadorGrupoService {
         grupo.setObligatorio(Boolean.TRUE.equals(req.getObligatorio()));
         grupo.setMaxSelecciones(maxSelecciones(req));
         grupo.setPermiteRepetir(permiteRepetir(req));
+        grupo.setEsExtras(Boolean.TRUE.equals(req.getEsExtras()));
         grupo.setUpdatedBy(actor);
         modificadorGrupoRepository.save(grupo);
 
@@ -233,6 +233,64 @@ public class ModificadorGrupoService {
         }
         modificadorGrupoRepository.saveAll(grupos);
         return modificadorGrupoRepository.findAllByProductoIdAndIsActiveTrueOrderByOrdenAscIdAsc(productoId);
+    }
+
+    /**
+     * Desde la toma de orden: cambia el precio de una opción de un grupo de Extras. Se guarda en
+     * el platillo sin confirmación; lo que se pida de aquí en adelante toma el precio nuevo.
+     */
+    @Transactional
+    public ModificadorOpcion cambiarPrecioExtra(Long opcionId, ExtrasVentaDtos.Precio req, User actor) {
+        ModificadorOpcion opcion = modificadorOpcionRepository.findById(opcionId)
+                .filter(o -> Boolean.TRUE.equals(o.getIsActive()))
+                .orElseThrow(() -> new IllegalArgumentException("Ese extra ya no existe"));
+        ModificadorGrupo grupo = grupoDeExtras(opcion.getGrupo().getId(), actor);
+        java.math.BigDecimal nuevo = req.precioExtra().setScale(2, java.math.RoundingMode.HALF_UP);
+        java.math.BigDecimal anterior = opcion.getPrecioExtra();
+        if (anterior != null && anterior.compareTo(nuevo) == 0) return opcion;
+        opcion.setPrecioExtra(nuevo);
+        ModificadorOpcion saved = modificadorOpcionRepository.save(opcion);
+        auditoriaService.log(actor, "PRECIO_EXTRA", "ModificadorOpcion", saved.getId(), anterior, nuevo,
+                grupo.getProducto().getName() + " · " + grupo.getNombre() + " · " + saved.getNombre());
+        return saved;
+    }
+
+    /**
+     * Desde la toma de orden: agrega un extra (nombre y precio) a un grupo de Extras del platillo.
+     * Si ya había uno con ese nombre que se quitó, se reactiva con el precio nuevo.
+     */
+    @Transactional
+    public ModificadorOpcion agregarExtra(Long grupoId, ExtrasVentaDtos.Nuevo req, User actor) {
+        ModificadorGrupo grupo = grupoDeExtras(grupoId, actor);
+        String nombre = req.nombre().trim();
+        if (nombre.isEmpty()) throw new IllegalArgumentException("Escribe el nombre del extra");
+        java.math.BigDecimal precio = req.precioExtra().setScale(2, java.math.RoundingMode.HALF_UP);
+        ModificadorOpcion existente = grupo.getOpciones().stream()
+                .filter(o -> o.getNombre().trim().equalsIgnoreCase(nombre))
+                .findFirst().orElse(null);
+        if (existente != null && Boolean.TRUE.equals(existente.getIsActive())) {
+            throw new IllegalArgumentException("\"" + nombre + "\" ya está en " + grupo.getNombre());
+        }
+        ModificadorOpcion opcion = existente != null ? existente : new ModificadorOpcion();
+        opcion.setGrupo(grupo);
+        opcion.setNombre(nombre);
+        opcion.setPrecioExtra(precio);
+        opcion.setIsActive(true);
+        opcion.setOrden(grupo.getOpciones().stream().mapToInt(o -> o.getOrden() == null ? 0 : o.getOrden()).max().orElse(-1) + 1);
+        ModificadorOpcion saved = modificadorOpcionRepository.save(opcion);
+        auditoriaService.log(actor, "NUEVO_EXTRA", "ModificadorOpcion", saved.getId(), null, precio,
+                grupo.getProducto().getName() + " · " + grupo.getNombre() + " · " + saved.getNombre());
+        return saved;
+    }
+
+    /** El grupo (validando la tienda del actor), que debe estar activo y ser de Extras. */
+    private ModificadorGrupo grupoDeExtras(Long grupoId, User actor) {
+        ModificadorGrupo grupo = findById(grupoId, actor);
+        if (!Boolean.TRUE.equals(grupo.getIsActive())) throw new IllegalArgumentException("Ese grupo ya no existe");
+        if (!Boolean.TRUE.equals(grupo.getEsExtras())) {
+            throw new IllegalStateException("\"" + grupo.getNombre() + "\" no es un grupo de extras: su precio se cambia en Platillos");
+        }
+        return grupo;
     }
 
     @Transactional
