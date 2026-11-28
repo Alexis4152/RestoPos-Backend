@@ -34,6 +34,12 @@ public class ComandaTicketService {
         text(buf, "COCINA".equals(comanda.getDestino()) ? "COCINA\n" : "ORDEN\n");
         text(buf, wrap(destinoOrden(orden)) + "\n");
         ctl(buf, 0x1B, 0x45, 0x00);
+        if (comanda.getEnviadaPor() != null && comanda.getEnviadaPor().startsWith(ComandaService.PREFIJO_REIMPRESION)) {
+            // Para que cocina no lo prepare dos veces.
+            ctl(buf, 0x1B, 0x45, 0x01);
+            text(buf, "*** REIMPRESION ***\n");
+            ctl(buf, 0x1B, 0x45, 0x00);
+        }
         text(buf, "Orden #" + orden.getId() + "\n");
         ctl(buf, 0x1B, 0x61, 0x00);           // izquierda
         String hora = comanda.getCreatedAt() != null ? HORA.format(comanda.getCreatedAt()) : "";
@@ -45,9 +51,11 @@ public class ComandaTicketService {
             for (String l : partir(cantidad(d.getCantidad()) + " x " + d.getProductoNombre())) text(buf, l + "\n");
             ctl(buf, 0x1B, 0x45, 0x00);
             if (d.getModificadores() != null) {
-                // Cocina ve el extra por su nombre ("Cebolla x3", "Aguacate"), sin marcar si es libre.
+                // Cocina ve cada opción por su nombre ("Cebolla x3"); lo de un grupo de Extras sale como
+                // "Extra Verduras" para que se distinga de lo que ya lleva el platillo.
                 for (com.nexora.restopos.util.ModsAgrupados.Mod m : com.nexora.restopos.util.ModsAgrupados.agrupar(d.getModificadores())) {
-                    for (String l : partir("  + " + m.nombreConCantidad())) text(buf, l + "\n");
+                    String texto = esDeExtras(m) ? "Extra " + m.nombreConCantidad() : m.nombreConCantidad();
+                    for (String l : partir("  + " + texto)) text(buf, l + "\n");
                 }
             }
             if (d.getComensal() != null) {
@@ -64,6 +72,17 @@ public class ComandaTicketService {
         text(buf, "-".repeat(WIDTH) + "\n\n\n\n");
         ctl(buf, 0x1D, 0x56, 0x01);           // GS V 1 : corte parcial
         return toHex(buf.toByteArray());
+    }
+
+    /**
+     * ¿La opción viene de un grupo de Extras? Las líneas guardan solo el nombre del grupo (copia al
+     * pedir), así que se reconoce por él: "Extra", "Extras", "Extras de verdura"... Si la opción ya
+     * dice "extra" no se repite la palabra.
+     */
+    private static boolean esDeExtras(com.nexora.restopos.util.ModsAgrupados.Mod m) {
+        String grupo = m.grupoNombre() == null ? "" : m.grupoNombre().trim().toLowerCase();
+        String nombre = m.nombre() == null ? "" : m.nombre().trim().toLowerCase();
+        return grupo.startsWith("extra") && !nombre.startsWith("extra");
     }
 
     private static String destinoOrden(Orden orden) {

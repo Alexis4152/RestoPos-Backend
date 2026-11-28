@@ -35,6 +35,24 @@ public class ComandaController {
         return ResponseEntity.ok(ApiResponse.ok(comandaService.crear(ordenId, body.get("detalleIds"), actor)));
     }
 
+    /** Envíos a cocina de la orden (para elegir cuál reimprimir). */
+    @GetMapping("/api/orders/{ordenId}/comandas")
+    @PreAuthorize("@sectionAccess.checkAny('ORDERS', 'TAKEAWAY')")
+    public ResponseEntity<ApiResponse<List<ComandaService.EnvioComanda>>> envios(@PathVariable Long ordenId,
+                                                                               @AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(comandaService.envios(ordenId, actor)));
+    }
+
+    /** Reimprime en cocina un envío ({"comandaId": id}) o toda la orden (sin comandaId). */
+    @PostMapping("/api/orders/{ordenId}/comandas/reimprimir")
+    @PreAuthorize("@sectionAccess.checkAny('ORDERS', 'TAKEAWAY')")
+    public ResponseEntity<ApiResponse<Comanda>> reimprimir(@PathVariable Long ordenId,
+                                                           @RequestBody(required = false) Map<String, Long> body,
+                                                           @AuthenticationPrincipal User actor) {
+        Long comandaId = body != null ? body.get("comandaId") : null;
+        return ResponseEntity.ok(ApiResponse.ok(comandaService.reimprimir(ordenId, comandaId, actor), "Se mandó a imprimir"));
+    }
+
     @GetMapping("/api/comandas/pendientes")
     @PreAuthorize("@sectionAccess.checkAny('ORDERS', 'TAKEAWAY', 'CASH_CUTS', 'KITCHEN')")
     public ResponseEntity<ApiResponse<List<Comanda>>> pendientes(@AuthenticationPrincipal User actor) {

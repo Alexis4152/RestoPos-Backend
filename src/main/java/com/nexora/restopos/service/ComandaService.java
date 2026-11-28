@@ -67,6 +67,63 @@ public class ComandaService {
                 .build());
     }
 
+    /** Prefijo de {@code enviadaPor} en una reimpresión: así sale en el ticket y cocina no la prepara dos veces. */
+    public static final String PREFIJO_REIMPRESION = "REIMPRESION - ";
+
+    /** Un envío a cocina de la orden, para elegir cuál reimprimir. */
+    public record EnvioComanda(Long id, LocalDateTime enviadaAt, String enviadaPor, String platillos, boolean reimpresion) {}
+
+    /** Envíos a cocina de una orden, el más reciente primero, con un resumen de lo que llevó cada uno. */
+    public List<EnvioComanda> envios(Long ordenId, User actor) {
+        ordenService.findById(ordenId, actor); // valida acceso a la orden
+        Map<Long, OrdenDetalle> lineas = ordenDetalleRepository.findByOrdenId(ordenId).stream()
+                .collect(Collectors.toMap(OrdenDetalle::getId, Function.identity()));
+        return comandaRepository.findByOrdenIdOrderByIdDesc(ordenId).stream()
+                .map(c -> new EnvioComanda(c.getId(), c.getCreatedAt(), c.getEnviadaPor(),
+                        idsDe(c).stream().map(lineas::get).filter(Objects::nonNull)
+                                .map(d -> d.getCantidad().stripTrailingZeros().toPlainString() + " " + d.getProductoNombre())
+                                .collect(Collectors.joining(", ")),
+                        c.getEnviadaPor() != null && c.getEnviadaPor().startsWith(PREFIJO_REIMPRESION)))
+                .toList();
+    }
+
+    /**
+     * Reimprime en cocina: vuelve a poner en la cola de la estación de impresión un envío de la
+     * orden ({@code comandaId}) o, si es null, todo lo que lleva la orden (sin cancelados ni el
+     * cargo de envío). El ticket sale marcado como reimpresión.
+     */
+    @Transactional
+    public Comanda reimprimir(Long ordenId, Long comandaId, User actor) {
+        Orden orden = ordenService.findById(ordenId, actor);
+        List<Long> ids;
+        String destino;
+        if (comandaId != null) {
+            Comanda original = buscar(comandaId, actor);
+            if (!original.getOrdenId().equals(ordenId)) throw new IllegalArgumentException("Ese envío no es de esta orden");
+            ids = idsDe(original);
+            destino = original.getDestino();
+        } else {
+            ids = ordenDetalleRepository.findByOrdenId(ordenId).stream()
+                    .filter(d -> !Boolean.TRUE.equals(d.getCargoExtra())
+                            && d.getEstado() != com.nexora.restopos.model.OrdenDetalleEstado.CANCELADO)
+                    .map(OrdenDetalle::getId).toList();
+            Tienda tienda = orden.getTienda();
+            destino = tienda == null || !Boolean.FALSE.equals(tienda.getEnviarACocina()) ? "COCINA" : "CAJA";
+        }
+        if (ids.isEmpty()) throw new IllegalStateException("No hay nada que reimprimir en esta orden");
+        return comandaRepository.save(Comanda.builder()
+                .tiendaId(orden.getTienda() != null ? orden.getTienda().getId() : null)
+                .ordenId(ordenId)
+                .destino(destino)
+                .detalleIds(ids.stream().map(String::valueOf).collect(Collectors.joining(",")))
+                .enviadaPor(PREFIJO_REIMPRESION + actor.getName())
+                .build());
+    }
+
+    private static List<Long> idsDe(Comanda c) {
+        return Arrays.stream(c.getDetalleIds().split(",")).filter(s -> !s.isBlank()).map(Long::valueOf).toList();
+    }
+
     /** Comandas pendientes de la tienda en la que actúa el usuario (las recientes). */
     public List<Comanda> pendientes(User actor) {
         Long tiendaId = tenantScope.scopeId(actor);

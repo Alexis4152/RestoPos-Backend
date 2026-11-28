@@ -15,6 +15,9 @@ public interface ComandaRepository extends JpaRepository<Comanda, Long> {
     /** Pendientes de una tienda creadas después de {@code desde}, en orden de llegada. */
     List<Comanda> findTop20ByTiendaIdAndTomadaAtIsNullAndCreatedAtAfterOrderByIdAsc(Long tiendaId, LocalDateTime desde);
 
+    /** Comandas de una orden, la más reciente primero (para reimprimir). */
+    List<Comanda> findByOrdenIdOrderByIdDesc(Long ordenId);
+
     /**
      * Toma una comanda para imprimirla, de forma atómica: solo la primera estación que llega la
      * obtiene (si hay dos computadoras con la estación activa, nunca se imprime dos veces).
