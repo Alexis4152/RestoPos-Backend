@@ -69,8 +69,18 @@ public class ComandaTicketService {
             }
             text(buf, "\n");
         }
-        text(buf, "-".repeat(WIDTH) + "\n\n\n\n");
-        ctl(buf, 0x1D, 0x56, 0x01);           // GS V 1 : corte parcial
+        // "Fin de ticket" centrado: con impresoras sin cuchilla marca dónde arrancar el papel para
+        // que no se junte con la comanda siguiente. El avance deja la marca a la altura de la barra
+        // dentada; si la impresora sí corta, el corte cae justo debajo.
+        text(buf, "-".repeat(WIDTH) + "\n");
+        ctl(buf, 0x1B, 0x61, 0x01);           // centro
+        ctl(buf, 0x1B, 0x45, 0x01);
+        text(buf, "*** FIN DE TICKET ***\n");
+        ctl(buf, 0x1B, 0x45, 0x00);
+        text(buf, "Orden #" + orden.getId() + "\n");
+        ctl(buf, 0x1B, 0x61, 0x00);           // izquierda
+        text(buf, "\n\n\n\n");
+        ctl(buf, 0x1D, 0x56, 0x01);           // GS V 1 : corte parcial (si la impresora tiene cuchilla)
         return toHex(buf.toByteArray());
     }
 
