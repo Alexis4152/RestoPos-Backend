@@ -82,8 +82,9 @@ public class OrdenService {
     }
 
     /**
-     * A nombre de quién queda una orden: el mesero elegido (activo, rol MESERO, de la tienda de la
-     * orden) o, si no se eligió, quien la abre.
+     * A nombre de quién queda una orden: el mesero elegido al abrirla (activo, rol MESERO, de la
+     * tienda de la orden) o, si no se eligió, quien la abre. Se fija al abrir y no se cambia después;
+     * es el que sale como "Atendió" en el cobro y el ticket.
      */
     private User meseroPara(Long meseroId, Tienda tienda, User actor) {
         if (meseroId == null || meseroId.equals(actor.getId())) return actor;
@@ -95,22 +96,6 @@ public class OrdenService {
             throw new IllegalArgumentException("Elige un mesero activo de esta tienda");
         }
         return m;
-    }
-
-    /** Cambia el mesero de una orden abierta (la abrió alguien más o se la pasan a otro). */
-    @Transactional
-    public Orden cambiarMesero(Long ordenId, Long meseroId, User actor) {
-        Orden orden = findById(ordenId, actor);
-        ensureModificable(orden);
-        if (meseroId == null) throw new IllegalArgumentException("Elige un mesero");
-        User anterior = orden.getMesero();
-        User nuevo = meseroPara(meseroId, orden.getTienda(), actor);
-        if (anterior != null && anterior.getId().equals(nuevo.getId())) return orden;
-        orden.setMesero(nuevo);
-        Orden saved = ordenRepository.save(orden);
-        auditoriaService.log(actor, "CAMBIAR_MESERO", "Orden", saved.getId(),
-                anterior != null ? anterior.getName() : null, nuevo.getName(), null);
-        return saved;
     }
 
     /** Órdenes para llevar activas (ver {@link com.nexora.restopos.controller.OrdenController#takeaway}), más antiguas primero. */

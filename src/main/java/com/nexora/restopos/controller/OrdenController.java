@@ -51,13 +51,6 @@ public class OrdenController {
                 .map(u -> new com.nexora.restopos.dto.UsuarioResumen(u.getId(), u.getName())).toList(), null));
     }
 
-    /** Cambia el mesero de una orden abierta ({"meseroId": id}). */
-    @PutMapping("/{id}/mesero")
-    public ResponseEntity<ApiResponse<Orden>> cambiarMesero(@PathVariable Long id, @RequestBody java.util.Map<String, Long> body,
-                                                            @AuthenticationPrincipal User actor) {
-        return ResponseEntity.ok(ApiResponse.ok(ordenService.cambiarMesero(id, body.get("meseroId"), actor), "Mesero asignado"));
-    }
-
     @GetMapping("/takeaway")
     public ResponseEntity<ApiResponse<List<Orden>>> takeaway(@AuthenticationPrincipal User actor) {
         return ResponseEntity.ok(ApiResponse.ok(ordenService.findActiveTakeaway(actor), null));
