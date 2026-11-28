@@ -8,6 +8,9 @@ import lombok.Data;
 public class OrdenCreateRequest {
     // null = orden para llevar/sin mesa
     private Long mesaId;
+    // Mesero a cuyo nombre queda la orden cuando la abre alguien más (cajero, admin...).
+    // null = queda a nombre de quien la abre.
+    private Long meseroId;
     @Min(1)
     private Integer numeroComensales = 1;
     private String notas;

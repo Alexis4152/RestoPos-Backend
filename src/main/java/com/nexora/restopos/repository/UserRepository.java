@@ -100,4 +100,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     // personal activo de una tienda — para los selects de "¿quién puso/retiró el dinero?" en cajas
     List<User> findByTiendaIdAndIsActiveTrueOrderByNameAsc(Long tiendaId);
+
+    /** Meseros activos de una tienda (para asignarles una orden que abrió alguien más). */
+    @Query("SELECT u FROM User u WHERE u.tienda.id = :tiendaId AND u.isActive = true AND u.role.name = 'MESERO' ORDER BY u.name ASC")
+    List<User> findMeserosActivos(@Param("tiendaId") Long tiendaId);
 }

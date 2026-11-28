@@ -47,6 +47,7 @@ public class OrdenService {
     private static final LocalDateTime MAX_DATE = LocalDateTime.of(2100, 1, 1, 0, 0);
 
     private final OrdenRepository ordenRepository;
+    private final com.nexora.restopos.repository.UserRepository userRepository;
     private final ComensalRepository comensalRepository;
     private final OrdenDetalleRepository ordenDetalleRepository;
     private final MesaRepository mesaRepository;
@@ -72,6 +73,44 @@ public class OrdenService {
         LocalDateTime effFrom = from != null ? from : MIN_DATE;
         LocalDateTime effTo = to != null ? to : MAX_DATE;
         return ordenRepository.search(tenantScope.scopeId(actor), effFrom, effTo, estado, pageable);
+    }
+
+    /** Meseros activos de la tienda del actor (lista para asignarles la orden). */
+    public List<User> meserosDeLaTienda(User actor) {
+        Tienda tienda = tenantScope.tiendaForWrite(actor);
+        return tienda == null ? List.of() : userRepository.findMeserosActivos(tienda.getId());
+    }
+
+    /**
+     * A nombre de quién queda una orden: el mesero elegido (activo, rol MESERO, de la tienda de la
+     * orden) o, si no se eligió, quien la abre.
+     */
+    private User meseroPara(Long meseroId, Tienda tienda, User actor) {
+        if (meseroId == null || meseroId.equals(actor.getId())) return actor;
+        User m = userRepository.findById(meseroId)
+                .orElseThrow(() -> new IllegalArgumentException("Ese mesero no existe"));
+        boolean deLaTienda = tienda != null && m.getTienda() != null && m.getTienda().getId().equals(tienda.getId());
+        boolean esMesero = m.getRole() != null && "MESERO".equals(m.getRole().getName());
+        if (!deLaTienda || !esMesero || !Boolean.TRUE.equals(m.getIsActive())) {
+            throw new IllegalArgumentException("Elige un mesero activo de esta tienda");
+        }
+        return m;
+    }
+
+    /** Cambia el mesero de una orden abierta (la abrió alguien más o se la pasan a otro). */
+    @Transactional
+    public Orden cambiarMesero(Long ordenId, Long meseroId, User actor) {
+        Orden orden = findById(ordenId, actor);
+        ensureModificable(orden);
+        if (meseroId == null) throw new IllegalArgumentException("Elige un mesero");
+        User anterior = orden.getMesero();
+        User nuevo = meseroPara(meseroId, orden.getTienda(), actor);
+        if (anterior != null && anterior.getId().equals(nuevo.getId())) return orden;
+        orden.setMesero(nuevo);
+        Orden saved = ordenRepository.save(orden);
+        auditoriaService.log(actor, "CAMBIAR_MESERO", "Orden", saved.getId(),
+                anterior != null ? anterior.getName() : null, nuevo.getName(), null);
+        return saved;
     }
 
     /** Órdenes para llevar activas (ver {@link com.nexora.restopos.controller.OrdenController#takeaway}), más antiguas primero. */
@@ -781,7 +820,7 @@ public class OrdenService {
         Orden orden = new Orden();
         orden.setTienda(tiendaOrden);
         orden.setMesa(mesa);
-        orden.setMesero(actor);
+        orden.setMesero(meseroPara(req.getMeseroId(), tiendaOrden, actor));
         orden.setNumeroComensales(req.getNumeroComensales() != null ? req.getNumeroComensales() : 1);
         orden.setNotas(req.getNotas());
         // Solo tiene sentido sin mesa (para llevar) — una orden de mesa no se entrega a

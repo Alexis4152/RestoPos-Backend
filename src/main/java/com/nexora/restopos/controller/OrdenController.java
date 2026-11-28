@@ -44,6 +44,20 @@ public class OrdenController {
      * Órdenes para llevar (sin mesa) activas — ni pagadas ni canceladas —, más antiguas
      * primero, para el tablero del módulo "Para llevar".
      */
+    /** Meseros activos de la tienda, para asignarles una orden que abre alguien más. */
+    @GetMapping("/meseros")
+    public ResponseEntity<ApiResponse<List<com.nexora.restopos.dto.UsuarioResumen>>> meseros(@AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(ordenService.meserosDeLaTienda(actor).stream()
+                .map(u -> new com.nexora.restopos.dto.UsuarioResumen(u.getId(), u.getName())).toList(), null));
+    }
+
+    /** Cambia el mesero de una orden abierta ({"meseroId": id}). */
+    @PutMapping("/{id}/mesero")
+    public ResponseEntity<ApiResponse<Orden>> cambiarMesero(@PathVariable Long id, @RequestBody java.util.Map<String, Long> body,
+                                                            @AuthenticationPrincipal User actor) {
+        return ResponseEntity.ok(ApiResponse.ok(ordenService.cambiarMesero(id, body.get("meseroId"), actor), "Mesero asignado"));
+    }
+
     @GetMapping("/takeaway")
     public ResponseEntity<ApiResponse<List<Orden>>> takeaway(@AuthenticationPrincipal User actor) {
         return ResponseEntity.ok(ApiResponse.ok(ordenService.findActiveTakeaway(actor), null));
